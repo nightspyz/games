@@ -1,0 +1,20 @@
+Zap Range VR - version 18 (2 Oct 2026)
+
+Host index.html on any https address and open it in the Quest 3 browser.
+Everything is in this one file: no assets folder needed.
+
+New in 18:
+- Wrist menu: fixed the top buttons looking greyed out (the dark backing was being drawn over them)
+- Wrist menu buttons react faster: Start round and Night mode trigger on a quick tap,
+  Reset table / Reset score almost as fast; Exit VR keeps a longer hold so you can't leave by accident
+
+New in 17:
+- You can't walk or step past the pink firing line; a neon force field fades in as you get close
+
+Also in this build:
+- Neon arcade look: blacklight carpet, neon tubes and wall art, party lights, mirror ball
+- Solid hologram targets with scanlines, glow and floor projectors
+- RAILGUN smart sight: locks on when charged (red + beep) and fires by itself on a sure hit
+- LOBBER sight with 5-25 m drop marks; turns white when the shot will hit
+- Timed 60 s rounds with saved best score, drones that shoot back, mini / armour / gold targets
+- REPEATER overheat, RAILGUN charge-up and two-handed grip, hip holsters, night mode, wrist menu
