@@ -4,24 +4,35 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v3.2 -->
+<!-- Lantern Tide v3.3 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
 [hidden]{display:none!important}
 #vr{z-index:10;position:fixed;bottom:18px;left:50%;transform:translateX(-50%);font:inherit;font-weight:600;color:#f2f7f6;background:rgba(6,24,34,.55);border:1px solid #ffffff33;border-radius:999px;padding:10px 22px;cursor:pointer;backdrop-filter:blur(6px)}
 #pip{position:fixed;right:16px;bottom:70px;width:30vw;max-width:380px;aspect-ratio:5/3;border:2px solid #ffffff88;border-radius:10px;pointer-events:none;box-shadow:0 2px 14px #0008}
-#pip div{position:absolute;left:0;right:0;top:0;padding:4px 8px;font:600 12px system-ui,sans-serif;color:#fff;text-shadow:0 1px 3px #000;background:linear-gradient(#0009,#0000)}
+#pip div{position:absolute;left:0;right:0;top:100%;margin-top:6px;padding:4px 8px;border-radius:8px;font:600 12px system-ui,sans-serif;color:#fff;background:#0a1820cc}
+#gmenu{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,92vw);background:rgba(8,20,28,.93);border:1px solid #ffffff33;border-radius:16px;padding:16px 20px;color:#e6efee;box-shadow:0 8px 40px #000a;font:14px system-ui,sans-serif}
+#gmenu h3{margin:0 0 6px;font-size:18px}
+#gmenu .big{font:700 34px system-ui,sans-serif;color:#ffd98a;margin-bottom:4px}
+#gmenu input[type=range]{width:100%}
+#gmenu .lbl{margin:10px 0 4px;color:#8fa6a8;font-size:12px}
+#gmenu .row{display:flex;flex-wrap:wrap;gap:6px}
+#gmenu button{flex:1 1 auto;min-width:64px;padding:8px 10px;border:0;border-radius:10px;background:#26363f;color:#e6efee;font:600 14px system-ui,sans-serif;cursor:pointer}
+#gmenu button:hover{background:#3b5a68}
+#gmenu button.on{background:#2fa88a;color:#06231b}
+#gmenu .hint{margin-top:10px;color:#8fa6a8;font-size:12px}
 #hint{position:fixed;left:50%;top:16px;transform:translateX(-50%);color:#f2f7f6;background:rgba(6,24,34,.45);padding:6px 14px;border-radius:999px;pointer-events:none;transition:opacity 1.5s;text-shadow:0 1px 3px #0008}
 </style>
 </head>
 <body>
 <div id="hint">WASD walk · drag look · Shift run · E pick up / put down · Space: draw, light a firework, drone take-off/land · drone: WASD fly, R/F up/down, drag to steer</div>
 <div id="pip" hidden><div></div></div>
+<div id="gmenu" hidden></div>
 <button id="vr">Enter VR</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// Lantern Tide v3.2: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v3.3: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 (() => {
@@ -2035,6 +2046,7 @@ function strike() {
 }
 
 function updateWeather(dt) {
+  if (weather.locked) weather.timer = weather.fogTimer = 30; // (a weather you picked from the menu stays put)
   weather.timer -= dt;
   if (weather.timer <= 0) {
     // Fog days stay calm (fog and wind don't go together)
@@ -2048,8 +2060,10 @@ function updateWeather(dt) {
     weather.fogTarget = weather.fogDay ? (Math.random() < 0.7 ? 1 : 0.45) : 0;
     weather.fogTimer = rand(60, 120);
   }
-  weather.fog += clamp(weather.fogTarget - weather.fog, -0.01 * dt, 0.01 * dt);
-  weather.value += clamp(weather.target - weather.value, -0.015 * dt, 0.015 * dt);
+  const fogStep = (weather.locked ? 0.04 : 0.01) * dt;
+  weather.fog += clamp(weather.fogTarget - weather.fog, -fogStep, fogStep);
+  const valStep = (weather.locked ? 0.05 : 0.015) * dt;
+  weather.value += clamp(weather.target - weather.value, -valStep, valStep);
   weather.windAngle += rand(-0.5, 0.5) * 0.05 * dt;
   weather.windAngle = clamp(weather.windAngle, -Math.PI / 2 - 0.6, -Math.PI / 2 + 0.6); // always blowing toward the island, more or less
   const w = weather.value;
@@ -4201,7 +4215,7 @@ function readControls(dt) {
     const la = L && L.gamepad ? L.gamepad.axes : [];
     const lx = la.length >= 4 ? la[2] : la[0] || 0;
     const ly = la.length >= 4 ? la[3] : la[1] || 0;
-    const flyingDrone = !!controllerProp.holder; // with the drone controller in hand, the sticks fly the drone instead
+    const flyingDrone = !!controllerProp.holder || menu.open; // with the drone controller in hand, the sticks fly the drone instead
     if (Math.abs(lx) > DEAD && !flyingDrone) input.x = lx;
     if (Math.abs(ly) > DEAD && !flyingDrone) input.z = ly;
     const click = !!(L && L.gamepad && L.gamepad.buttons[3] && L.gamepad.buttons[3].pressed);
@@ -4214,7 +4228,7 @@ function readControls(dt) {
     const rx = ra.length >= 4 ? ra[2] : ra[0] || 0;
     if (Math.abs(rx) > DEAD && !flyingDrone) input.turn = rx;
     yaw -= input.turn * dt * 1.5; // smooth turning
-  } else if (!controllerProp.holder) {
+  } else if (!controllerProp.holder && !menu.open) {
     if (keys.has("KeyW") || keys.has("ArrowUp")) input.z -= 1;
     if (keys.has("KeyS") || keys.has("ArrowDown")) input.z += 1;
     if (keys.has("KeyA")) input.x -= 1;
@@ -4268,7 +4282,7 @@ function updatePlayer(dt) {
   let jumpReq = aDown && !aWas;
   aWas = aDown;
   if (!renderer.xr.isPresenting && spaceTap && !props.some((p) => p.holder)) jumpReq = true;
-  if (jumpReq && player.jy <= 0.001) player.jv = 4.3; // about 90 cm
+  if (jumpReq && player.jy <= 0.001 && !menu.open) player.jv = 4.3; // about 90 cm
   player.jv -= 9.8 * dt;
   player.jy += player.jv * dt;
   if (player.jy <= 0) player.jy = player.jv = 0;
@@ -5025,7 +5039,7 @@ const FPV_W = 320, FPV_H = 192;
 const fpvRT = new THREE.WebGLRenderTarget(FPV_W, FPV_H);
 const hudCanvas = document.createElement("canvas");
 hudCanvas.width = 256;
-hudCanvas.height = 64;
+hudCanvas.height = 54;
 const hudTex = new THREE.CanvasTexture(hudCanvas);
 const controllerProp = (() => {
   const group = new THREE.Group();
@@ -5040,11 +5054,11 @@ const controllerProp = (() => {
     stk.position.set(sx * 0.07, 0.034, 0.025);
     group.add(stk);
   }
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.115, 0.069).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: fpvRT.texture, toneMapped: false }));
-  screen.position.set(0, 0.0215, -0.012);
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.115, 0.05).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: fpvRT.texture, toneMapped: false }));
+  screen.position.set(0, 0.0215, -0.019);
   group.add(screen);
-  const hud = new THREE.Mesh(new THREE.PlaneGeometry(0.115, 0.029).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: hudTex, transparent: true, toneMapped: false }));
-  hud.position.set(0, 0.0215, 0.032);
+  const hud = new THREE.Mesh(new THREE.PlaneGeometry(0.115, 0.024).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: hudTex, toneMapped: false }));
+  hud.position.set(0, 0.0222, 0.0325); // (below the picture, with a gap: it never lies over the screen)
   group.add(hud);
   scene.add(group);
   const p = makeProp({ name: "controller", group, body, trigWas: false, hudT: 0, frame: 0 });
@@ -5247,6 +5261,15 @@ function renderFpv(target, rect) {
   }
 }
 const pipEl = $("pip");
+function droneStats() {
+  const alt = Math.max(0, drone.y - Math.max(waveHeight(drone.x, drone.z, shared.uTime.value), groundY(drone.x, drone.z)));
+  return {
+    label: drone.mode === "landed" ? "ON PAD" : drone.mode === "landing" ? "RETURNING" : "FLYING",
+    alt: Math.round(alt),
+    dist: Math.round(Math.hypot(drone.x - camPos.x, drone.z - camPos.z)),
+    pct: Math.round((drone.battery / DRONE_BATTERY) * 100),
+  };
+}
 function droneStatus() {
   const alt = Math.max(0, drone.y - Math.max(waveHeight(drone.x, drone.z, shared.uTime.value), groundY(drone.x, drone.z)));
   const dist = Math.hypot(drone.x - camPos.x, drone.z - camPos.z);
@@ -5260,17 +5283,28 @@ function updateDroneView(dt) {
   if (held !== "screen" && controllerProp.hudT <= 0) {
     controllerProp.hudT = 0.25;
     const c = hudCanvas.getContext("2d");
-    c.clearRect(0, 0, 256, 64);
-    c.fillStyle = "rgba(8,18,24,0.8)";
-    c.fillRect(0, 0, 256, 64);
+    const st = droneStats();
+    c.fillStyle = "#0b1820";
+    c.fillRect(0, 0, 256, 54);
+    c.textBaseline = "alphabetic";
+    c.fillStyle = drone.mode === "landed" ? "#9fb4b8" : "#7ff0c8";
+    c.font = "700 19px system-ui, sans-serif";
+    c.textAlign = "left";
+    c.fillText(st.label, 8, 21);
     c.fillStyle = "#e6efee";
-    c.font = "600 17px system-ui, sans-serif";
-    c.fillText(droneStatus().slice(0, 26), 6, 22);
+    c.textAlign = "right";
+    c.fillText(`ALT ${st.alt} m`, 248, 21);
+    c.textAlign = "left";
+    c.fillStyle = "#cfe8e4";
+    c.font = "600 15px system-ui, sans-serif";
+    c.fillText(`${st.dist}/${DRONE_RANGE} m`, 8, 42);
+    c.fillStyle = "rgba(255,255,255,0.18)";
+    c.fillRect(104, 30, 144, 14);
     c.fillStyle = drone.battery < DRONE_BATTERY * 0.15 ? "#ff7a5a" : "#7ff0c8";
-    c.fillRect(6, 38, 244 * (drone.battery / DRONE_BATTERY), 10);
-    c.fillStyle = "#8fa6a8";
-    c.font = "13px system-ui, sans-serif";
-    c.fillText(drone.mode === "landed" ? "Trigger: take off" : "Sticks fly · trigger: land", 6, 60);
+    c.fillRect(104, 30, 144 * (drone.battery / DRONE_BATTERY), 14);
+    c.fillStyle = "#06231b";
+    c.font = "700 12px system-ui, sans-serif";
+    c.fillText(`${st.pct}%`, 110, 41);
     hudTex.needsUpdate = true;
   }
   if (held !== "screen") {
@@ -5343,9 +5377,260 @@ function updateProps(dt) {
   spaceTap = false;
 }
 
+// ===== The menu (X): time of day and weather =====
+// In VR: press X on the left controller; a panel floats in front of you. Point a controller at it and pull the trigger
+// (drag along the bar to scrub the time). On a screen: press X.
+const menu = { open: false, sig: "" };
+const WEATHER_PRESETS = {
+  clear: { v: 0.05, fog: 0 },
+  cloudy: { v: 0.35, fog: 0 },
+  rain: { v: 0.6, fog: 0 },
+  storm: { v: 0.95, fog: 0 },
+  fog: { v: 0.1, fog: 1 },
+  mist: { v: 0.28, fog: 0.5 },
+};
+function setWeatherPreset(name) {
+  const p = WEATHER_PRESETS[name];
+  weather.locked = true; // stays this way until you pick Random again
+  weather.target = p.v;
+  weather.fogTarget = p.fog;
+  weather.fogDay = p.fog > 0;
+  weather.preset = name;
+}
+function setRandomWeather() {
+  weather.locked = false;
+  weather.preset = "random";
+  weather.timer = rand(10, 30);
+  weather.fogTimer = rand(10, 30);
+}
+const setTime = (h) => {
+  game.hours = ((h % 24) + 24) % 24;
+  prevHours = game.hours;
+};
+const TIME_PRESETS = [["Dawn", 6], ["Noon", 12], ["Dusk", 18], ["Night", 0]];
+const TIME_SPEEDS = [["Pause", 0], ["1×", 1], ["4×", 4], ["16×", 16]];
+const WEATHER_BUTTONS = [["Clear", "clear"], ["Cloudy", "cloudy"], ["Rain", "rain"], ["Storm", "storm"], ["Fog", "fog"], ["Mist", "mist"], ["Random", "random"]];
+const weatherIs = (id) => (id === "random" ? !weather.locked : weather.locked && weather.preset === id);
+const clockText = (h) => `${String(Math.floor(h) % 24).padStart(2, "0")}:${String(Math.floor((h % 1) * 60)).padStart(2, "0")}`;
+
+// ----- the panel in VR -----
+const MW = 900, MH = 620, PW = 0.9, PH = 0.62;
+const menuCanvas = document.createElement("canvas");
+menuCanvas.width = MW;
+menuCanvas.height = MH;
+const menuTex = new THREE.CanvasTexture(menuCanvas);
+const menuPanel = new THREE.Mesh(new THREE.PlaneGeometry(PW, PH), new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, toneMapped: false, depthTest: false }));
+menuPanel.renderOrder = 60;
+menuPanel.visible = false;
+scene.add(menuPanel);
+const SLIDER = { x: 60, y: 168, w: 780, h: 34 };
+const mbtns = [];
+{
+  const row = (list, y, h, gap, onClick, active, x0 = 60, total = 780) => {
+    const w = (total - gap * (list.length - 1)) / list.length;
+    list.forEach(([label, val], i) => mbtns.push({ x: x0 + i * (w + gap), y, w, h, label, click: () => onClick(val), active: () => active(val) }));
+  };
+  row(TIME_PRESETS, 228, 56, 16, (h) => setTime(h), () => false);
+  row(TIME_SPEEDS, 322, 56, 16, (s) => (game.speed = s), (s) => game.speed === s);
+  row(WEATHER_BUTTONS.slice(0, 4), 420, 56, 16, (id) => setWeatherPreset(id), weatherIs);
+  row(WEATHER_BUTTONS.slice(4), 490, 56, 16, (id) => (id === "random" ? setRandomWeather() : setWeatherPreset(id)), weatherIs);
+  mbtns.push({ x: 812, y: 16, w: 72, h: 52, label: "✕", click: () => toggleMenu(false), active: () => false });
+}
+const menuLasers = [];
+for (const h of hands) {
+  const laser = new THREE.Mesh(new THREE.CylinderGeometry(0.0025, 0.0025, 1, 6).rotateX(Math.PI / 2).translate(0, 0, -0.5), new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0.8, depthTest: false }));
+  laser.renderOrder = 61;
+  laser.visible = false;
+  h.ray.add(laser);
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.009, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }));
+  dot.renderOrder = 62;
+  dot.visible = false;
+  scene.add(dot);
+  menuLasers.push({ h, laser, dot, trigWas: false, hover: null, drag: false });
+}
+function drawMenu() {
+  const c = menuCanvas.getContext("2d");
+  c.clearRect(0, 0, MW, MH);
+  c.fillStyle = "rgba(8, 20, 28, 0.93)";
+  c.beginPath();
+  c.roundRect ? c.roundRect(0, 0, MW, MH, 34) : c.rect(0, 0, MW, MH);
+  c.fill();
+  c.strokeStyle = "rgba(160, 220, 235, 0.35)";
+  c.lineWidth = 3;
+  c.stroke();
+  c.fillStyle = "#e6efee";
+  c.font = "700 36px system-ui, sans-serif";
+  c.textAlign = "left";
+  c.fillText("Time & weather", 60, 56);
+  c.font = "600 54px system-ui, sans-serif";
+  c.fillStyle = "#ffd98a";
+  c.fillText(clockText(game.hours), 60, 140);
+  c.font = "26px system-ui, sans-serif";
+  c.fillStyle = "#9fd8d2";
+  c.fillText(weather.locked ? "Weather: " + (weather.preset || "") : "Weather: random", 280, 134);
+  // the time bar
+  c.fillStyle = "rgba(255,255,255,0.14)";
+  c.fillRect(SLIDER.x, SLIDER.y + 11, SLIDER.w, 12);
+  const grd = c.createLinearGradient(SLIDER.x, 0, SLIDER.x + SLIDER.w, 0);
+  grd.addColorStop(0, "#15204a");
+  grd.addColorStop(0.25, "#ff9a5a");
+  grd.addColorStop(0.5, "#8fd0ff");
+  grd.addColorStop(0.75, "#ff6a5a");
+  grd.addColorStop(1, "#15204a");
+  c.fillStyle = grd;
+  c.fillRect(SLIDER.x, SLIDER.y + 13, SLIDER.w, 8);
+  const kx = SLIDER.x + (game.hours / 24) * SLIDER.w;
+  c.fillStyle = "#fff";
+  c.beginPath();
+  c.arc(kx, SLIDER.y + 17, 17, 0, 6.283);
+  c.fill();
+  c.fillStyle = "#8fa6a8";
+  c.font = "22px system-ui, sans-serif";
+  c.fillText("Set the time", 60, 224);
+  c.fillText("How fast time passes", 60, 316);
+  c.fillText("Weather", 60, 414);
+  for (const b of mbtns) {
+    const hot = menuLasers.some((l) => l.hover === b);
+    const on = b.active();
+    c.fillStyle = on ? "#2fa88a" : hot ? "#3b5a68" : "#26363f";
+    c.beginPath();
+    c.roundRect ? c.roundRect(b.x, b.y, b.w, b.h, 14) : c.rect(b.x, b.y, b.w, b.h);
+    c.fill();
+    if (hot) {
+      c.strokeStyle = "#bff3ff";
+      c.lineWidth = 3;
+      c.stroke();
+    }
+    c.fillStyle = on ? "#06231b" : "#e6efee";
+    c.font = "600 26px system-ui, sans-serif";
+    c.textAlign = "center";
+    c.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + 9);
+    c.textAlign = "left";
+  }
+  c.fillStyle = "#8fa6a8";
+  c.font = "20px system-ui, sans-serif";
+  c.fillText("Point a controller · trigger to press · drag the bar to scrub time · X closes", 60, 592);
+  menuTex.needsUpdate = true;
+}
+const _mo = new THREE.Vector3(), _mdv = new THREE.Vector3(), _mq = new THREE.Quaternion(), _mInv = new THREE.Matrix4();
+function menuHit(h) {
+  h.ray.getWorldPosition(_mo);
+  h.ray.getWorldQuaternion(_mq);
+  _mdv.set(0, 0, -1).applyQuaternion(_mq);
+  menuPanel.updateMatrixWorld(true);
+  _mInv.copy(menuPanel.matrixWorld).invert();
+  const o = _mo.clone().applyMatrix4(_mInv);
+  const d = _mdv.clone().transformDirection(_mInv);
+  if (Math.abs(d.z) < 1e-4) return null;
+  const t = -o.z / d.z;
+  if (t < 0.05 || t > 6) return null;
+  const x = o.x + d.x * t, y = o.y + d.y * t;
+  if (Math.abs(x) > PW / 2 + 0.03 || Math.abs(y) > PH / 2 + 0.03) return null;
+  return { px: ((x + PW / 2) / PW) * MW, py: ((PH / 2 - y) / PH) * MH, t, point: _mo.clone().addScaledVector(_mdv, t) };
+}
+
+// ----- the panel on a screen -----
+const gm = $("gmenu");
+gm.innerHTML = `<h3>Time &amp; weather</h3><div class="big" id="gm-clock"></div>
+<input id="gm-slider" type="range" min="0" max="24" step="0.05">
+<div class="lbl">Set the time</div><div class="row" id="gm-presets"></div>
+<div class="lbl">How fast time passes</div><div class="row" id="gm-speed"></div>
+<div class="lbl">Weather</div><div class="row" id="gm-weather"></div>
+<div class="hint">X or Esc closes</div>`;
+const gmButtons = [];
+const addDomRow = (id, list, onClick, active) => {
+  for (const [label, val] of list) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.onclick = () => (onClick(val), refreshDomMenu());
+    $(id).appendChild(b);
+    gmButtons.push({ b, active: () => active(val) });
+  }
+};
+addDomRow("gm-presets", TIME_PRESETS, (h) => setTime(h), () => false);
+addDomRow("gm-speed", TIME_SPEEDS, (s) => (game.speed = s), (s) => game.speed === s);
+addDomRow("gm-weather", WEATHER_BUTTONS, (id) => (id === "random" ? setRandomWeather() : setWeatherPreset(id)), weatherIs);
+$("gm-slider").oninput = (e) => setTime(+e.target.value);
+function refreshDomMenu() {
+  $("gm-clock").textContent = clockText(game.hours);
+  if (document.activeElement !== $("gm-slider")) $("gm-slider").value = game.hours;
+  for (const g of gmButtons) g.b.classList.toggle("on", g.active());
+}
+
+function toggleMenu(force) {
+  const want = typeof force === "boolean" ? force : !menu.open;
+  if (want === menu.open) return;
+  menu.open = want;
+  if (renderer.xr.isPresenting) {
+    if (want) {
+      // float it in front of you, turned to face you
+      camera.getWorldDirection(_sD);
+      _sD.y = 0;
+      _sD.normalize();
+      menuPanel.position.set(camPos.x + _sD.x * 1.1, camPos.y - 0.1, camPos.z + _sD.z * 1.1);
+      menuPanel.rotation.set(0, Math.atan2(camPos.x - menuPanel.position.x, camPos.z - menuPanel.position.z), 0);
+      menu.sig = "";
+    }
+    menuPanel.visible = want;
+    if (!want) for (const l of menuLasers) l.laser.visible = l.dot.visible = false;
+  } else gm.hidden = !want;
+  if (want && !renderer.xr.isPresenting) refreshDomMenu();
+}
+addEventListener("keydown", (e) => {
+  if (e.repeat) return;
+  if (e.code === "KeyX") toggleMenu();
+  if (e.code === "Escape") toggleMenu(false);
+});
+let xWas = false;
+function updateMenu(dt) {
+  if (!renderer.xr.isPresenting) {
+    if (menu.open) refreshDomMenu();
+    return;
+  }
+  const Lh = handOf("left");
+  const xDown = !!(Lh && Lh.gamepad && Lh.gamepad.buttons[4] && Lh.gamepad.buttons[4].pressed);
+  if (xDown && !xWas) toggleMenu();
+  xWas = xDown;
+  if (!menu.open) return;
+  let hoverSig = "";
+  for (const l of menuLasers) {
+    const h = l.h;
+    if (!h.side) {
+      l.laser.visible = l.dot.visible = false;
+      continue;
+    }
+    const hit = menuHit(h);
+    l.hover = null;
+    l.laser.visible = true;
+    l.laser.scale.z = hit ? hit.t : 2.5;
+    l.dot.visible = !!hit;
+    const trig = trigDown(h);
+    if (hit) {
+      l.dot.position.copy(hit.point);
+      for (const b of mbtns) if (hit.px >= b.x && hit.px <= b.x + b.w && hit.py >= b.y && hit.py <= b.y + b.h) l.hover = b;
+      const onBar = hit.px >= SLIDER.x - 20 && hit.px <= SLIDER.x + SLIDER.w + 20 && hit.py >= SLIDER.y - 14 && hit.py <= SLIDER.y + SLIDER.h + 14;
+      if (trig && !l.trigWas) {
+        if (l.hover) {
+          l.hover.click();
+          buzz(h, 0.35, 30);
+        } else if (onBar) l.drag = true;
+      }
+      if (l.drag && trig) setTime(clamp((hit.px - SLIDER.x) / SLIDER.w, 0, 1) * 24);
+    }
+    if (!trig) l.drag = false;
+    l.trigWas = trig;
+    hoverSig += (l.hover ? l.hover.label : "-") + "|";
+  }
+  const sig = `${Math.floor(game.hours * 60)}|${game.speed}|${weather.locked}|${weather.preset}|${hoverSig}`;
+  if (sig !== menu.sig) {
+    menu.sig = sig;
+    drawMenu();
+  }
+}
+
 // ===== Frame loop: a full day and night in eight minutes =====
 const DAY_SECONDS = 480;
-const game = { hours: rand(0, 24) }; // a random time of day each visit
+const game = { hours: rand(0, 24), speed: 1 }; // a random time of day each visit
 let prevHours = game.hours;
 let last = performance.now();
 function frame(now) {
@@ -5353,8 +5638,8 @@ function frame(now) {
   last = now;
   shared.uTime.value += dt;
   const t = shared.uTime.value;
-  game.hours = (game.hours + (dt * 24) / DAY_SECONDS) % 24;
-  if (prevHours < 5 && game.hours >= 5) {
+  game.hours = (game.hours + (dt * 24 * game.speed) / DAY_SECONDS) % 24;
+  if (prevHours < 5 && game.hours >= 5 && !weather.locked) {
     weather.fogDay = Math.random() < 0.3; // each new morning may bring a fog day
     weather.fogTimer = 0;
   }
@@ -5379,6 +5664,7 @@ function frame(now) {
   fire.update(dt, t);
   updateLamps(env.lampsOn);
   updateProps(dt);
+  updateMenu(dt);
   updateFireworks(dt);
   updateDrone(dt, t);
   updateDroneView(dt);
@@ -5441,7 +5727,7 @@ addEventListener("resize", () => {
 
 renderer.setAnimationLoop(frame);
 // handy for testing in a desktop browser
-window.__lt = { props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
+window.__lt = { drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
 })();
 </script>
 </body>

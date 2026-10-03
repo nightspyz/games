@@ -1,7 +1,13 @@
-Lantern Tide - version 3.2 (3 Oct 2026)
+Lantern Tide - version 3.3 (3 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 3.3:
+- A menu on X (VR: X on the left controller, point and pull the trigger; screen: X) to set the time of day
+  (drag the bar, or Dawn / Noon / Dusk / Night), how fast time passes (pause / 1x / 4x / 16x) and the weather
+  (Clear / Cloudy / Rain / Storm / Fog / Mist, or Random to let the forecast take over again).
+- The drone controller's readout no longer lies over its screen: the picture and the text have their own areas.
 
 New in 3.2:
 - The drone controller takes the place of your hand when you hold it (bigger, so the screen is easy to read).
