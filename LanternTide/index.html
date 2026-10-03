@@ -8,13 +8,13 @@
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
 [hidden]{display:none!important}
-#vr{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);font:inherit;font-weight:600;color:#f2f7f6;background:rgba(6,24,34,.55);border:1px solid #ffffff33;border-radius:999px;padding:10px 22px;cursor:pointer;backdrop-filter:blur(6px)}
+#vr{z-index:10;position:fixed;bottom:18px;left:50%;transform:translateX(-50%);font:inherit;font-weight:600;color:#f2f7f6;background:rgba(6,24,34,.55);border:1px solid #ffffff33;border-radius:999px;padding:10px 22px;cursor:pointer;backdrop-filter:blur(6px)}
 #hint{position:fixed;left:50%;top:16px;transform:translateX(-50%);color:#f2f7f6;background:rgba(6,24,34,.45);padding:6px 14px;border-radius:999px;pointer-events:none;transition:opacity 1.5s;text-shadow:0 1px 3px #0008}
 </style>
 </head>
 <body>
 <div id="hint">WASD to walk · drag to look · Shift to run · E to pick up the stick on the sand, Space to draw</div>
-<button id="vr" hidden>Enter VR</button>
+<button id="vr">Enter VR</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 // Lantern Tide: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
@@ -3064,9 +3064,15 @@ const startAudio = () => audio.start();
 addEventListener("pointerdown", startAudio, { once: true });
 addEventListener("keydown", startAudio, { once: true });
 setTimeout(() => ($("hint").style.opacity = 0), 9000);
-if (navigator.xr) {
+if (!navigator.xr) {
+  $("vr").textContent = window.isSecureContext ? "VR not available in this browser" : "VR needs https";
+  $("vr").style.opacity = 0.6;
+} else {
   navigator.xr.isSessionSupported("immersive-vr").then((ok) => {
-    if (ok) $("vr").hidden = false;
+    if (!ok) {
+      $("vr").textContent = "No VR headset found";
+      $("vr").style.opacity = 0.6;
+    }
   }).catch(() => {});
 }
 $("vr").onclick = async () => {
