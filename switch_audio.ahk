@@ -12,9 +12,11 @@
 
 svv := A_ScriptDir "\SoundVolumeView.exe"
 
+; Command-line friendly IDs: "<Device Name>\Device\<Name>\Render"
+; Windows shows these as "<Name> (<Device Name>)".
 devices := [
-    "Speakers",
-    "Headphones",
+    "BlackShark V3 Pro - Game\Device\Speakers\Render",
+    "NVIDIA High Definition Audio\Device\Mi TV\Render",
 ]
 
 idx := 0
@@ -26,7 +28,7 @@ idx := 0
     try {
         ; "all" sets the device as default for console, multimedia and communications
         RunWait('"' svv '" /SetDefault "' name '" all', , "Hide")
-        ToolTip("Audio: " name)
+        ToolTip("Audio: " StrSplit(name, "\")[3] " (" StrSplit(name, "\")[1] ")")
     } catch as e {
         ToolTip("Failed to switch audio: " e.Message)
     }
