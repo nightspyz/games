@@ -1,7 +1,19 @@
-Lantern Tide - version 3.5 (3 Oct 2026)
+Lantern Tide - version 3.6 (3 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 3.6:
+- The X menu now has three tabs: Time & weather, World, Performance.
+- World tab: aurora on/off, star brightness (Dim to Brilliant), wave height (Calm to Huge), sand-mark detail (Low / Medium / High),
+  and a button to smooth the sand. Your choices are remembered.
+- Marks in the sand are now dug in (hollows with damp, packed sand at the bottom) rather than raised.
+- Better rocks: layered stone with cracks, mica flecks and real surface relief, flat fracture faces, on the beach, lighthouse
+  boulders, breakwater and fire ring.
+- You can jump onto rocks (A / Space): rocks are solid surfaces now, you step up about half a metre and jump for more.
+- Swimming: wade out past your chest and you swim, moving the way you look (look down to dive, up to rise, A kicks you up).
+  Underwater has its own look and sound: teal murk, a bright window to the sky above, muffled audio, a seabed all around the island.
+  You can swim out to the harbour and climb out onto the dock or boat.
 
 New in 3.5:
 - Calmer, more natural sunsets and sunrises: orange is now the dominant colour (gold to orange to a soft peach, fading to blue),

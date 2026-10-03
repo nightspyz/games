@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v3.5 -->
+<!-- Lantern Tide v3.6 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -13,7 +13,9 @@ canvas{display:block;touch-action:none}
 #pip{position:fixed;right:16px;bottom:70px;width:30vw;max-width:380px;aspect-ratio:5/3;border:2px solid #ffffff88;border-radius:10px;pointer-events:none;box-shadow:0 2px 14px #0008}
 #pip div{position:absolute;left:0;right:0;top:100%;margin-top:6px;padding:4px 8px;border-radius:8px;font:600 12px system-ui,sans-serif;color:#fff;background:#0a1820cc}
 #gmenu{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,92vw);background:rgba(8,20,28,.93);border:1px solid #ffffff33;border-radius:16px;padding:16px 20px;color:#e6efee;box-shadow:0 8px 40px #000a;font:14px system-ui,sans-serif}
-#gmenu h3{margin:0 0 6px;font-size:18px}
+#gmenu h3{margin:0 0 6px;font-size:18px;min-height:20px}
+#gmenu .tabs{display:flex;gap:6px;margin-bottom:10px}
+#gmenu .pane[hidden]{display:none}
 #gmenu .big{font:700 34px system-ui,sans-serif;color:#ffd98a;margin-bottom:4px}
 #gmenu input[type=range]{width:100%}
 #gmenu h4{margin:14px 0 0;font-size:15px}
@@ -35,7 +37,7 @@ canvas{display:block;touch-action:none}
 <button id="vr">Enter VR</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// Lantern Tide v3.5: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v3.6: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 (() => {
@@ -78,6 +80,9 @@ const shared = {
   uSunset: { value: 0 },
   uSunVis: { value: 1 },
   uStars: { value: 0 },
+  uStarGain: { value: 1 },
+  uUnder: { value: 0 },
+  uUnderCol: { value: new THREE.Color(0.03, 0.3, 0.36) },
   uTime: { value: 0 },
   uCloudCover: { value: 0.2 },
   uCloudDark: { value: 0 },
@@ -109,6 +114,9 @@ const SKY_GLSL = /* glsl */ `
   uniform float uSunset;
   uniform float uSunVis;
   uniform float uStars;
+  uniform float uStarGain;
+  uniform float uUnder;
+  uniform vec3 uUnderCol;
   uniform float uTime;
 
   vec3 skyColor(vec3 d) {
@@ -314,7 +322,7 @@ const sky = new THREE.Mesh(
         vec3 cell = floor(d * 400.0);
         float n = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
         float twinkle = 0.6 + 0.4 * sin(uTime * 2.0 + n * 60.0);
-        col += vec3(step(0.9985, n) * twinkle * uStars * smoothstep(0.0, 0.15, d.y));
+        col += vec3(step(0.9985 - 0.0012 * clamp(uStarGain - 1.0, 0.0, 2.0), n) * twinkle * uStars * uStarGain * smoothstep(0.0, 0.15, d.y));
 
         // Aurora curtains in the northern sky (-Z)
         if (uAurora > 0.001 && d.y > 0.0) {
@@ -559,6 +567,7 @@ const WAVE_DEFS = [
 ];
 const WAVES = WAVE_DEFS.map((w) => ({ dx: Math.sin(w.ang), dz: -Math.cos(w.ang), k: (Math.PI * 2) / w.len, steep: w.steep, a: w.steep / ((Math.PI * 2) / w.len), c: Math.sqrt(9.8 / ((Math.PI * 2) / w.len)) }));
 let waveScale = 1;
+let waveMul = 1;
 
 // ===== The island, its beach and the breaking waves: one description, in GLSL and in JS =====
 const ISL = { x: 0, z: -190, r: 90 };
@@ -993,6 +1002,19 @@ const water = new THREE.Mesh(
         vec3 v = toCam / dist;
         float far = smoothstep(80.0, 300.0, dist);
 
+        // Seen from below (swimming): the surface is a silvery ceiling. Straight up you see a bright window onto the sky;
+        // at a shallower angle the water reflects the dim depths back at you.
+        if (uUnder > 0.5) {
+          float up = max(-v.y, 0.0);
+          float win = smoothstep(0.6, 0.78, up);
+          vec3 sk = skyColor(normalize(vec3(0.0, 0.9, 0.3))) * vec3(0.7, 0.95, 1.0);
+          vec3 c = mix(uUnderCol * 1.1, mix(uUnderCol * 1.5, sk, 0.75), win);
+          c += vec3(0.5, 0.8, 0.85) * pow(win, 2.0) * (0.5 + 0.5 * sin(vWorld.x * 2.1 + vWorld.z * 1.7 + uTime * 2.0)) * 0.12;
+          c = mix(c, uUnderCol, smoothstep(6.0, 30.0, dist));
+          gl_FragColor = vec4(c, 1.0);
+          return;
+        }
+
         // Normal: big waves + fine ripples up close, flattened far away to avoid shimmer
         vec3 n = normalize(vNormal);
         float detail = (1.0 - smoothstep(25.0, 160.0, dist)) * (0.35 + 0.25 * uWaveScale);
@@ -1069,7 +1091,7 @@ const water = new THREE.Mesh(
           vec3 cell = floor(rr * 260.0);
           float sn = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
           float tw = 0.55 + 0.45 * sin(uTime * 3.0 + fract(sn * 977.0) * 6.2832);
-          col += vec3(0.85, 0.9, 1.0) * step(0.997, sn) * tw * uStars * (0.1 + 0.9 * fres) * smoothstep(0.0, 0.05, rr.y);
+          col += vec3(0.85, 0.9, 1.0) * step(0.997 - 0.001 * clamp(uStarGain - 1.0, 0.0, 2.0), sn) * tw * uStars * uStarGain * (0.1 + 0.9 * fres) * smoothstep(0.0, 0.05, rr.y);
           col += vec3(0.05, 0.07, 0.12) * uStars * mirror;
           if (uAurora > 0.001) {
             float az = atan(rr.x, -rr.z);
@@ -1111,6 +1133,7 @@ const water = new THREE.Mesh(
     blendDst: THREE.OneMinusSrcAlphaFactor,
   })
 );
+water.material.side = THREE.DoubleSide;
 water.renderOrder = 1;
 water.material.depthWrite = false;
 water.frustumCulled = false;
@@ -1298,6 +1321,18 @@ function makeRock(detail, seed, wetBelow) {
     const r = 0.72 + 0.55 * n + 0.14 * ridge + 0.03 * jnoise(x * 14, y * 14, z * 14 + seed);
     p.setXYZ(i, x * r, y * r * 0.72, z * r);
   }
+  // a few flat cuts, like fracture faces: they give the rock edges and flat tops to stand on
+  const cuts = 3 + Math.floor(jnoise(seed, 1.5, 2.5) * 3);
+  for (let k = 0; k < cuts; k++) {
+    const a = jnoise(seed * 1.3 + k * 7.1, 3.3, k) * 6.283 * 2, e = k === 0 ? 1.15 : 0.1 + jnoise(seed + k, 9.1, 4.4) * 0.9;
+    const nx = Math.cos(a) * Math.cos(e), ny = Math.sin(e), nz = Math.sin(a) * Math.cos(e);
+    const d = (k === 0 ? 0.5 : 0.62) + 0.18 * jnoise(seed + k * 3.7, 1.1, 8.8);
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      const dot = x * nx + y * ny + z * nz - d * (k === 0 ? 0.72 : 1);
+      if (dot > 0) p.setXYZ(i, x - nx * dot, y - ny * dot, z - nz * dot);
+    }
+  }
   geo.computeVertexNormals();
   const nrm = geo.attributes.normal;
   const col = new Float32Array(p.count * 3);
@@ -1324,6 +1359,94 @@ function makeRock(detail, seed, wetBelow) {
   }
   geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
   return geo;
+}
+
+// ===== Rock material: granite and sandstone with strata, cracks, mica flecks and real surface relief =====
+// The colour (lichen, moss, wet and barnacled bases) comes from the vertex colours; this adds fine grain, layers and cracks on top
+// from noise in world space, and bumps the lighting with the same noise so the surface is rough rather than smooth.
+const ROCK_GLSL = /* glsl */ `
+  float rhash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
+  float rn3(vec3 p) {
+    vec3 i = floor(p); vec3 f = fract(p); vec3 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(rhash(i), rhash(i + vec3(1,0,0)), u.x), mix(rhash(i + vec3(0,1,0)), rhash(i + vec3(1,1,0)), u.x), u.y),
+               mix(mix(rhash(i + vec3(0,0,1)), rhash(i + vec3(1,0,1)), u.x), mix(rhash(i + vec3(0,1,1)), rhash(i + vec3(1,1,1)), u.x), u.y), u.z);
+  }
+  // surface height: big ridged lumps, medium pitting, fine grain
+  float rockH(vec3 p) {
+    float ridge = 1.0 - abs(2.0 * rn3(p * 3.0) - 1.0);
+    return 0.5 * ridge + 0.3 * rn3(p * 11.0) + 0.2 * rn3(p * 40.0);
+  }
+`;
+function rockMaterial() {
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.94, metalness: 0 });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader =
+      "varying vec3 vRW;\n" +
+      sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n  vRW = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+    sh.fragmentShader =
+      ROCK_GLSL +
+      "varying vec3 vRW;\n" +
+      sh.fragmentShader
+        .replace(
+          "#include <color_fragment>",
+          /* glsl */ `#include <color_fragment>
+          {
+            float r1 = rn3(vRW * 2.3);
+            float r2 = rn3(vRW * 9.0);
+            float r3 = rn3(vRW * 38.0);
+            float strata = sin(vRW.y * 9.0 + r1 * 5.0) * 0.5 + 0.5;               // layers that follow the rock's height, bent by noise
+            float crack = (1.0 - smoothstep(0.0, 0.025, abs(rn3(vRW * 3.1 + 4.0) - 0.5))) * smoothstep(0.45, 0.6, rn3(vRW * 1.1 + 9.0)); // thin dark cracks, only in some places
+            vec3 c = diffuseColor.rgb;
+            c *= 0.76 + 0.38 * r2 + 0.14 * strata;
+            c = mix(c, c * 0.3, crack * 0.85);
+            c += vec3(0.2) * step(0.82, r3) * (0.5 + 0.5 * r2);                  // bright mica / quartz flecks
+            c -= vec3(0.1) * step(r3, 0.14);                                     // and dark ones
+            diffuseColor.rgb = c;
+          }`
+        )
+        .replace(
+          "#include <normal_fragment_maps>",
+          /* glsl */ `#include <normal_fragment_maps>
+          {
+            // bump the normal with the height field (screen-space derivatives, as three.js does for bump maps)
+            float hh = rockH(vRW);
+            vec3 sp = -vViewPosition;
+            vec3 dpx = dFdx(sp), dpy = dFdy(sp);
+            float dHx = dFdx(hh), dHy = dFdy(hh);
+            vec3 R1 = cross(dpy, normal), R2 = cross(normal, dpx);
+            float det = dot(dpx, R1);
+            vec3 grad = sign(det) * (dHx * R1 + dHy * R2);
+            normal = normalize(abs(det) * normal - 0.05 * grad);
+          }`
+        );
+  };
+  m.customProgramCacheKey = () => "rock-material";
+  return m;
+}
+
+
+// Rocks you can stand on: the height of the top of a rock at (x, z), found by casting a ray down onto the mesh
+const rockSurfaces = [];
+const rockRay = new THREE.Raycaster();
+const rockDown = new THREE.Vector3(0, -1, 0);
+const rockOrigin = new THREE.Vector3();
+function registerRock(mesh) {
+  mesh.updateMatrixWorld(true);
+  mesh.geometry.computeBoundingSphere();
+  const sc = mesh.getWorldScale(new THREE.Vector3());
+  const c = mesh.geometry.boundingSphere.center.clone().applyMatrix4(mesh.matrixWorld);
+  rockSurfaces.push({ mesh, x: c.x, z: c.z, r: mesh.geometry.boundingSphere.radius * Math.max(sc.x, sc.z), top: c.y + mesh.geometry.boundingSphere.radius * sc.y });
+}
+function rockSurfaceAt(x, z) {
+  let best = -Infinity;
+  for (const r of rockSurfaces) {
+    if (Math.abs(x - r.x) > r.r || Math.abs(z - r.z) > r.r) continue;
+    rockOrigin.set(x, r.top + 0.5, z);
+    rockRay.set(rockOrigin, rockDown);
+    const hit = rockRay.intersectObject(r.mesh, false)[0];
+    if (hit && hit.point.y > best) best = hit.point.y;
+  }
+  return best;
 }
 
 // ===== Wind, shared by the trees and the grass =====
@@ -1491,10 +1614,13 @@ function windMaterial() {
 const colliders = []; // circles the player can't walk through
 // Marks in the sand live in a texture that wraps around the player (48 m across): footprints and drawn lines are
 // stamped in, and the sea, rain and time slowly smooth them away.
-const IMP_N = 1536, IMP_S = 48;
-const impRT = new THREE.WebGLRenderTarget(IMP_N, IMP_N, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping, depthBuffer: false });
+const IMP_S = 48;
+let IMP_N = 1536;
+const makeImpRT = (n) => new THREE.WebGLRenderTarget(n, n, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping, depthBuffer: false });
+let impRT = makeImpRT(IMP_N);
 const landUniforms = Object.assign({}, shared, {
   uImprint: { value: impRT.texture },
+  uImpN: { value: IMP_N },
   uImpPlayer: { value: new THREE.Vector2() },
   uWet: { value: 0 },
   uCamPos: waterUniforms.uCamPos,
@@ -1509,12 +1635,12 @@ const landUniforms = Object.assign({}, shared, {
 // shining, and dune grass taking over higher up. The same bedHeight drives the water, so they always meet.
 const land = new THREE.Mesh(
   (() => {
-    const RMAX = ISL.r + 30;
-    const RINGS = 150;
+    const RIN = ISL.r + 30, RINGS_IN = 150, RINGS_OUT = 24, ROUT = ISL.r + 130; // (the outer rings are the sea floor you can swim over)
+    const RINGS = RINGS_IN + RINGS_OUT;
     const SEGS = 240;
     const pos = [], idx = [];
     for (let i = 0; i <= RINGS; i++) {
-      const r = (i / RINGS) * RMAX;
+      const r = i <= RINGS_IN ? (i / RINGS_IN) * RIN : RIN + Math.pow((i - RINGS_IN) / RINGS_OUT, 1.4) * (ROUT - RIN);
       for (let j = 0; j <= SEGS; j++) {
         const a = (j / SEGS) * Math.PI * 2;
         const x = ISL.x + Math.cos(a) * r, z = ISL.z + Math.sin(a) * r;
@@ -1550,7 +1676,8 @@ const land = new THREE.Mesh(
       ${CLOUD_GLSL}
       ${SHORE_GLSL}
       const float IMP_S = ${IMP_S.toFixed(1)};
-      const float IMP_N = ${IMP_N.toFixed(1)};
+      uniform float uImpN;
+      #define IMP_N uImpN
       uniform sampler2D uImprint;
       uniform vec2 uImpPlayer;
       uniform float uWet;
@@ -1586,6 +1713,7 @@ const land = new THREE.Mesh(
         vec3 toCam = uCamPos - vWorld;
         float dist = length(toCam);
         vec3 V = toCam / dist;
+        if (uUnder < 0.5 && vWorld.y < -2.5) discard; // the deep sea floor is hidden by the water: don't shade it
         vec2 p = vWorld.xz;
         float y = vWorld.y;
         float near = 1.0 - smoothstep(12.0, 70.0, dist);
@@ -1618,7 +1746,8 @@ const land = new THREE.Mesh(
         Iz *= sandOnly;
         g *= mix(1.0, 0.3, wet) * near * (1.0 - gt) * (1.0 - I0);
         g += (vec2(vnoise(p * 14.0), vnoise(p * 14.0 + 5.0)) - 0.5) * 1.6 * gt * near; // grass blades
-        N = normalize(N + vec3(-g.x, 0.0, -g.y) * 1.3 + vec3(-Ix, 0.0, -Iz) * 2.2);
+        // (a mark is a hollow: the surface falls into it, so its slope is the mark's gradient, not the opposite)
+        N = normalize(N + vec3(-g.x, 0.0, -g.y) * 1.3 + vec3(Ix, 0.0, Iz) * (0.045 * IMP_N / IMP_S));
 
         // Sand colour: warm, patchy, with grains, quartz sparkles and dark mineral flecks
         float patchN = vnoise(p * 0.3) * 0.6 + vnoise(p * 1.7) * 0.4;
@@ -1651,7 +1780,8 @@ const land = new THREE.Mesh(
         vec3 albedo = mix(sand, vec3(0.3, 0.42, 0.16), seed * 0.85);
         albedo = mix(albedo, green, gt);
         albedo *= mix(1.0, 0.75, uWet * gt);
-        albedo *= 1.0 - 0.42 * I0;
+        albedo *= 1.0 - 0.3 * I0;
+        albedo = mix(albedo, albedo * vec3(0.78, 0.7, 0.62), smoothstep(0.1, 0.9, I0)); // damp, packed sand at the bottom of a groove
 
         // Light: sun (dimmed by cloud shadows), sky, moon, and nearby lamps
         float cSh = mix(1.0, cloudShadow(vWorld, uSunDir), uSunVis);
@@ -1681,7 +1811,8 @@ const land = new THREE.Mesh(
         col = mix(col, skyColor(rr) * 0.9, gloss * (0.1 + fr * 0.6));
 
         col = 1.0 - exp(-col * 1.35); // soft highlights, so bright sun doesn't clip the sand to white
-        col = mix(col, uHorizon, smoothstep(uFogN, uFogF, dist));
+        col *= mix(vec3(1.0), vec3(0.55, 0.85, 0.9), uUnder);
+        col = mix(col, mix(uHorizon, uUnderCol, uUnder), smoothstep(uFogN, uFogF, dist));
         gl_FragColor = vec4(col, 1.0);
       }
     `,
@@ -1839,7 +1970,7 @@ const grassMesh = (() => {
 
 // ----- Rocks and driftwood along the beach -----
 {
-  const rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0 });
+  const rockMat = rockMaterial();
   const addRock = (x, z, s, detail, sink) => {
     const wet = shoreDistJS(x, z) < 14 ? 0.25 : -9; // rocks near the water are dark, wet and barnacled low down
     const rock = new THREE.Mesh(makeRock(detail, Math.random() * 50, wet), rockMat);
@@ -1847,6 +1978,7 @@ const grassMesh = (() => {
     rock.position.set(x, groundY(x, z) + s * (0.15 - sink), z);
     rock.rotation.y = rand(0, 6.28);
     scene.add(rock);
+    registerRock(rock);
     return rock;
   };
   for (let i = 0; i < 18; i++) {
@@ -1855,7 +1987,6 @@ const grassMesh = (() => {
     if (Math.hypot(x - ISL.x, z - (ISL.z + ISL.r - 9)) < 7) continue;
     const s = rand(0.35, 1.4);
     addRock(x, z, s, 4, 0);
-    colliders.push({ x, z, r: s * 1.0 });
   }
   // a tumble of boulders around the lighthouse's foot
   for (let i = 0; i < 7; i++) {
@@ -1863,7 +1994,6 @@ const grassMesh = (() => {
     const x = ISL.x + 4 + Math.cos(a) * r, z = ISL.z - 6 + Math.sin(a) * r;
     const s = rand(0.5, 1.1);
     addRock(x, z, s, 3, 0.1);
-    colliders.push({ x, z, r: s * 0.9 });
   }
   // Driftwood: bleached, cracked, knotted, with stubs of branches
   const woodMat = new THREE.MeshStandardMaterial({ map: driftTex, roughness: 0.95 });
@@ -2226,7 +2356,7 @@ function updateWeather(dt) {
   wx.fog = weather.fog;
   // Wind drives the waves and the clouds
   weather.windSpeed = 3 + 21 * w;
-  waveScale = 0.55 + 1.45 * w;
+  waveScale = (0.55 + 1.45 * w) * waveMul;
   weather.cloudOffset.x += Math.cos(weather.windAngle) * weather.windSpeed * 1.5 * dt;
   weather.cloudOffset.y += Math.sin(weather.windAngle) * weather.windSpeed * 1.5 * dt;
   if (wx.storm > 0.2) {
@@ -2300,7 +2430,7 @@ function applyEnvironment(hours) {
   shared.uSunVis.value = smooth(-0.04, 0.02, e) * (1 - 0.9 * wx.overcast) * (1 - 0.75 * wx.fog);
   shared.uFog.value = wx.fog;
   shared.uStars.value = night * (1 - wx.overcast) * (1 - wx.fog);
-  shared.uAurora.value = night * (1 - wx.cover) * (1 - wx.fog) * (0.75 + 0.25 * Math.sin(shared.uTime.value * 0.03));
+  shared.uAurora.value = opts.aurora * night * (1 - wx.cover) * (1 - wx.fog) * (0.75 + 0.25 * Math.sin(shared.uTime.value * 0.03));
   shared.uCloudCover.value = wx.cover;
   // god rays are strongest with a low sun partly hidden by broken cloud
   shared.uRays.value = smooth(-0.12, 0.06, e) * (1 - 0.55 * smooth(0.3, 0.9, e)) * (0.3 + 0.7 * wx.cover) * (1 - 0.75 * smooth(0.55, 0.95, wx.overcast)) * (1 - wx.fog);
@@ -2366,7 +2496,7 @@ function updateLighthouse(dt, lampsOn) {
 
 // ===== Sound (all synthesised) =====
 const audio = (() => {
-  let ctx = null, master, windGain, seaGain, rainGain, noiseBuf;
+  let ctx = null, master, lowpass, windGain, seaGain, rainGain, noiseBuf;
   const a = {
     start() {
       if (ctx) return ctx.resume && ctx.resume();
@@ -2375,7 +2505,10 @@ const audio = (() => {
       ctx = new AC();
       master = ctx.createGain();
       master.gain.value = 0.7;
-      master.connect(ctx.destination);
+      lowpass = ctx.createBiquadFilter(); // swimming muffles everything
+      lowpass.type = "lowpass";
+      lowpass.frequency.value = 20000;
+      master.connect(lowpass).connect(ctx.destination);
       const len = ctx.sampleRate * 3;
       noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
       const d = noiseBuf.getChannelData(0);
@@ -2507,6 +2640,9 @@ const audio = (() => {
       a._drone.g.gain.setTargetAtTime(0.06 * level, t0, 0.2);
       a._drone.o.frequency.setTargetAtTime(150 + Math.min(speed2, 200) * 0.5, t0, 0.2);
     },
+    underwater(on) {
+      if (lowpass) lowpass.frequency.setTargetAtTime(on ? 380 : 20000, ctx.currentTime, 0.08);
+    },
     thunder(dist) {
       if (!ctx) return;
       const delay = Math.min(dist / 343, 2.5);
@@ -2529,7 +2665,7 @@ const audio = (() => {
 })();
 
 // ===== The player: walking on the island beach =====
-const player = { x: ISL.x, z: ISL.z + ISL.r - 9, y: 0, jy: 0, jv: 0 };
+const player = { x: ISL.x, z: ISL.z + ISL.r - 9, y: 0 };
 player.y = groundY(player.x, player.z);
 let yaw = Math.PI / 2 + 0.35; // facing west along the beach, toward the dock, the sea on your left
 let pitch = 0;
@@ -2566,6 +2702,8 @@ function applyUnderwater(material, wag = 0) {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = shared.uTime;
     shader.uniforms.uLight = waterUniforms.uLight;
+    shader.uniforms.uUnder = shared.uUnder;
+    shader.uniforms.uUnderCol = shared.uUnderCol;
     shader.vertexShader =
       (wag ? "attribute float aPhase;\nuniform float uTime;\n" : "") +
       "varying vec3 vUW;\n" +
@@ -2585,11 +2723,15 @@ function applyUnderwater(material, wag = 0) {
           vUW = (modelMatrix * uwPos).xyz;`
         );
     shader.fragmentShader =
-      "uniform float uLight;\nuniform float uTime;\nvarying vec3 vUW;\n" +
+      "uniform float uLight;\nuniform float uTime;\nuniform float uUnder;\nuniform vec3 uUnderCol;\nvarying vec3 vUW;\n" +
       shader.fragmentShader.replace(
         "#include <fog_fragment>",
         `float below = -vUW.y;
-        if (below > 0.0) {
+        if (uUnder > 0.5) {
+          // the camera is under the water: things fade into the murk by how far away they are
+          vec3 absorbC = exp(-length(vUW - cameraPosition) * vec3(0.2, 0.07, 0.05));
+          gl_FragColor.rgb = gl_FragColor.rgb * absorbC + uUnderCol * (1.0 - absorbC);
+        } else if (below > 0.0) {
           vec3 rd = normalize(vUW - cameraPosition);
           float pathLen = below / max(-rd.y, 0.08);
           // Caustics: sunlight focused by the waves, dancing over surfaces that face up
@@ -3882,7 +4024,7 @@ const dock = (() => {
   dockLight.position.copy(at(DOCK.r1 - 6, -1.05)).setY(DOCK.y + 2.1);
   g.add(dockLight);
   // The breakwater: a mound of big rocks on the seaward side of the basin, tall enough to stand above the swell
-  const rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93 });
+  const rockMat = rockMaterial();
   for (let i = 0; i < 30; i++) {
     const ang = DOCK_ANG + (i - 14.5) * 0.0125;
     const rr = ISL.r + 54 + rand(-2, 2);
@@ -4226,7 +4368,7 @@ const fire = (() => {
   g.position.set(x, y, z);
   scene.add(g);
   colliders.push({ x, z, r: 1.0 });
-  const stone = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93 });
+  const stone = rockMaterial();
   for (let i = 0; i < 10; i++) {
     const s = new THREE.Mesh(makeRock(2, i * 3.7, 9), stone);
     s.scale.setScalar(rand(0.1, 0.17));
@@ -4390,55 +4532,125 @@ function readControls(dt) {
   }
 }
 
-// ===== Walking =====
+// ===== Walking, climbing, jumping and swimming =====
+// player.y is where your feet are. On land you stand on the highest thing under you (sand, a rock, the dock, the boat's deck) and
+// can step up about half a metre; to get onto something higher, jump. In water deeper than your chest you swim: you move the way
+// you look (look down to dive, up to rise), and A kicks you up toward the surface.
 const camFwd = new THREE.Vector3();
+const camDir3 = new THREE.Vector3();
 const tmpV = new THREE.Vector3();
 let vigWant = 0;
 let aWas = false;
+const STEP_UP = 0.6;
+const SWIM_ENTER = 1.35; // water this deep (above the floor) and you swim
+const SWIM_EXIT = 1.05;
+player.vy = 0;
+player.swim = false;
+player.grounded = true;
+player.under = false;
+player.waterSm = 0;
+const surfaceAt = (x, z) => {
+  // the highest thing you could stand on here
+  let y = groundY(x, z);
+  const r = rockSurfaceAt(x, z);
+  if (r > y) y = r;
+  const dh = dockHeightAt(x, z);
+  if (dh !== null && dh > y) y = dh;
+  const bh = boatDeckAt(x, z);
+  if (typeof bh === "number" && bh > y) y = bh;
+  return y;
+};
 function blocked(x, z) {
-  const onBoat = boatDeckAt(x, z);
-  if (onBoat === "cabin") return true;
-  if (onBoat !== null || dockHeightAt(x, z) !== null) return false; // the dock and the boat's deck are solid ground
-  if (bedHeightJS(x, z) < -0.85) return true; // knee-deep is as far as you can wade
+  if (boatDeckAt(x, z) === "cabin") return true;
+  if (Math.hypot(x - ISL.x, z - ISL.z) > ISL.r + 110) return true; // (the open sea beyond is too far to swim)
+  if (!player.swim && surfaceAt(x, z) - player.y > STEP_UP) return true; // too high to step up: jump
   for (const c of colliders) if (Math.hypot(x - c.x, z - c.z) < c.r + 0.3) return true;
   return false;
 }
 function updatePlayer(dt) {
   readControls(dt);
-  camera.getWorldDirection(camFwd);
+  const t = shared.uTime.value;
+  camera.getWorldDirection(camDir3);
+  camFwd.copy(camDir3);
   camFwd.y = 0;
   if (camFwd.lengthSq() < 1e-4) camFwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
   camFwd.normalize();
   const rightX = -camFwd.z, rightZ = camFwd.x;
   const mag = Math.hypot(input.x, input.z);
   const len = Math.min(1, mag);
-  if (mag > 0) {
-    const nx = input.x / mag, nz = input.z / mag;
-    const speed = (keys.has("ShiftLeft") || runOn ? 5 : 2.3) * len;
-    const dx = (rightX * nx - camFwd.x * nz) * speed * dt;
-    const dz = (rightZ * nx - camFwd.z * nz) * speed * dt;
-    // slide along walls and the waterline instead of stopping dead
-    if (!blocked(player.x + dx, player.z + dz)) (player.x += dx), (player.z += dz);
-    else if (!blocked(player.x + dx, player.z)) player.x += dx;
-    else if (!blocked(player.x, player.z + dz)) player.z += dz;
-  }
-  let standY = Math.max(groundY(player.x, player.z), -0.85);
-  const dh = dockHeightAt(player.x, player.z);
-  if (dh !== null) standY = Math.max(standY, dh);
-  const bh = boatDeckAt(player.x, player.z);
-  if (typeof bh === "number") standY = Math.max(standY, bh);
-  player.y += (standY - player.y) * (1 - Math.exp(-dt * 14));
-  // Jump: A on the right controller (or Space on a screen when your hands are empty)
+
+  // how deep the water is under you, and the (smoothed) surface
+  const floorY = surfaceAt(player.x, player.z);
+  const surf = waveHeight(player.x, player.z, t);
+  player.waterSm += (surf - player.waterSm) * (1 - Math.exp(-dt * 2.5));
+  const depth = player.waterSm - floorY;
+  if (!player.swim && depth > SWIM_ENTER && player.grounded) {
+    player.swim = true;
+    splash(player.x, surf, player.z, 14, 2.2);
+  } else if (player.swim && depth < SWIM_EXIT) player.swim = false;
+
+  // jump (A on the right controller, or Space on a screen when your hands are empty)
   const Rh = handOf("right");
   const aDown = !!(Rh && Rh.gamepad && Rh.gamepad.buttons[4] && Rh.gamepad.buttons[4].pressed);
   let jumpReq = aDown && !aWas;
   aWas = aDown;
   if (!renderer.xr.isPresenting && spaceTap && !props.some((p) => p.holder)) jumpReq = true;
-  if (jumpReq && player.jy <= 0.001 && !menu.open) player.jv = 4.3; // about 90 cm
-  player.jv -= 9.8 * dt;
-  player.jy += player.jv * dt;
-  if (player.jy <= 0) player.jy = player.jv = 0;
-  rig.position.set(player.x, player.y + player.jy, player.z);
+  if (menu.open) jumpReq = false;
+
+  // moving
+  let mx = 0, mz = 0, my = 0;
+  if (mag > 0) {
+    const nx = input.x / mag, nz = input.z / mag;
+    if (player.swim) {
+      const sp = 1.9 * len;
+      // forward is wherever you look (including up and down); sideways stays level
+      mx = camDir3.x * -nz * sp + rightX * nx * sp * 0.65;
+      mz = camDir3.z * -nz * sp + rightZ * nx * sp * 0.65;
+      my = camDir3.y * -nz * sp;
+    } else {
+      const wade = 1 - 0.4 * clamp(depth / 1.2, 0, 1); // the water slows you
+      const sp = (keys.has("ShiftLeft") || runOn ? 5 : 2.3) * len * wade;
+      mx = (rightX * nx - camFwd.x * nz) * sp;
+      mz = (rightZ * nx - camFwd.z * nz) * sp;
+    }
+  }
+  const dx = mx * dt, dz = mz * dt;
+  // slide along walls, rocks and the edge of things instead of stopping dead
+  if (!blocked(player.x + dx, player.z + dz)) (player.x += dx), (player.z += dz);
+  else if (!blocked(player.x + dx, player.z)) player.x += dx;
+  else if (!blocked(player.x, player.z + dz)) player.z += dz;
+
+  // up and down
+  const here = surfaceAt(player.x, player.z);
+  if (player.swim) {
+    const floatY = lerp(player.waterSm, surf, 0.3) - 1.4; // feet this far below the surface keeps your head just out
+    let target = floatY;
+    if (Math.abs(my) > 0.05) target = player.y + my * 0.6; // swimming up or down
+    player.vy += (clamp((target - player.y) * 3, -2.5, 2.5) - player.vy) * (1 - Math.exp(-dt * 4));
+    if (jumpReq) player.vy = 3; // a kick toward the surface
+    player.y += player.vy * dt;
+    player.y = clamp(player.y, here + 0.12, floatY + 0.35);
+    player.grounded = false;
+  } else {
+    if (jumpReq && player.grounded) {
+      player.vy = 4.8; // about 1.2 m: enough to get onto a rock
+      player.grounded = false;
+    }
+    player.vy -= 9.8 * dt;
+    let feet = player.y + player.vy * dt;
+    if (feet <= here + 0.001) {
+      feet = here;
+      player.vy = 0;
+      player.grounded = true;
+    } else if (player.grounded && feet - here < 0.35 && player.vy <= 0) {
+      feet += (here - feet) * (1 - Math.exp(-dt * 25)); // follow the ground down a slope
+      player.vy = 0;
+    } else player.grounded = false;
+    // stepping up onto something a little higher: a quick, smooth rise rather than a pop
+    if (player.grounded && here > player.y && here - player.y < STEP_UP) feet = player.y + (here - player.y) * (1 - Math.exp(-dt * 18));
+    player.y = feet;
+  }
+  rig.position.set(player.x, player.y, player.z);
   rig.rotation.y = yaw;
   if (!renderer.xr.isPresenting) camera.rotation.set(pitch, 0, 0, "YXZ");
   vigWant = renderer.xr.isPresenting ? Math.min(1, len * (runOn ? 0.7 : 0.4) + Math.abs(input.turn) * 0.5) * 0.45 : 0;
@@ -4609,7 +4821,23 @@ function withImprintTarget(fn) {
     renderer.xr.enabled = xr;
   }
 }
+function setImprintRes(n) {
+  if (n === IMP_N) return;
+  IMP_N = n;
+  impRT.dispose();
+  impRT = makeImpRT(n);
+  landUniforms.uImprint.value = impRT.texture;
+  landUniforms.uImpN.value = n;
+  impReady = false; // cleared on the next frame
+  stamps.length = 0;
+  lastFoot = null;
+}
+function clearImprint() {
+  impReady = false;
+  stamps.length = 0;
+}
 function trackFeet() {
+  if (player.swim || !player.grounded) return void (lastFoot = null);
   const x = camPos.x, z = camPos.z;
   if (!lastFoot) return void (lastFoot = { x, z });
   const dx = x - lastFoot.x, dz = z - lastFoot.z, d = Math.hypot(dx, dz);
@@ -5529,6 +5757,26 @@ function updateProps(dt) {
   spaceTap = false;
 }
 
+// ===== World options (menu): aurora, star brightness, wave height, how fine the marks in the sand are =====
+const STAR_LEVELS = [["Dim", 0.4], ["Normal", 1], ["Bright", 1.8], ["Brilliant", 3]];
+const WAVE_LEVELS = [["Calm", 0.45], ["Normal", 1], ["High", 1.5], ["Huge", 2.1]];
+const SAND_LEVELS = [["Low", 1024], ["Medium", 1536], ["High", 2048]];
+const opts = { aurora: 1, stars: 1, waves: 1, sand: 1 };
+try {
+  const saved = JSON.parse(localStorage.getItem("lanternTideOpts") || "null");
+  if (saved) {
+    if (saved.aurora === 0 || saved.aurora === 1) opts.aurora = saved.aurora;
+    for (const k of ["stars", "waves", "sand"]) if (Number.isInteger(saved[k]) && saved[k] >= 0 && saved[k] <= (k === "sand" ? 2 : 3)) opts[k] = saved[k];
+  }
+} catch (e) {}
+function applyOpts() {
+  shared.uStarGain.value = STAR_LEVELS[opts.stars][1];
+  waveMul = WAVE_LEVELS[opts.waves][1];
+  setImprintRes(SAND_LEVELS[opts.sand][1]);
+  try { localStorage.setItem("lanternTideOpts", JSON.stringify(opts)); } catch (e) {}
+}
+applyOpts();
+
 // ===== Performance settings: the raymarched clouds and the god rays are the costly parts of the picture =====
 // Clouds: the size of the sky map they are drawn into and how finely each point is marched. Rays: samples per point.
 // (Both are drawn into maps a strip at a time, then smoothed, so even High is cheap compared with marching every pixel.)
@@ -5573,7 +5821,7 @@ const fpsColor = () => (perf.fps >= 60 ? "#7ff0c8" : perf.fps >= 40 ? "#f2c230" 
 // ===== The menu (X): time of day, weather and performance =====
 // In VR: press X on the left controller; a panel floats in front of you. Point a controller at it and pull the trigger
 // (drag along the bar to scrub the time). On a screen: press X.
-const menu = { open: false, sig: "" };
+const menu = { open: false, sig: "", tab: 0 };
 const WEATHER_PRESETS = {
   clear: { v: 0.05, fog: 0 },
   cloudy: { v: 0.35, fog: 0 },
@@ -5618,21 +5866,52 @@ menuPanel.visible = false;
 scene.add(menuPanel);
 const SLIDER = { x: 60, y: 168, w: 780, h: 34 };
 const mbtns = [];
+const mlabels = []; // { tab, text, x, y, size, color }
+const MENU_TABS = ["Time & weather", "World", "Performance"];
+const TAB_X0 = 60, TAB_W = 236, TAB_GAP = 11;
 {
+  let curTab = 0;
+  const label = (text, y, size = 22, color = "#8fa6a8") => mlabels.push({ tab: curTab, text, x: 60, y, size, color });
   const row = (list, y, h, gap, onClick, active, x0 = 60, total = 780) => {
     const w = (total - gap * (list.length - 1)) / list.length;
-    list.forEach(([label, val], i) => mbtns.push({ x: x0 + i * (w + gap), y, w, h, label, click: () => onClick(val), active: () => active(val) }));
+    const tab = curTab;
+    list.forEach(([lab, val], i) => mbtns.push({ tab, x: x0 + i * (w + gap), y, w, h, label: lab, click: () => onClick(val), active: () => active(val) }));
   };
+  MENU_TABS.forEach((name, i) => mbtns.push({ x: TAB_X0 + i * (TAB_W + TAB_GAP), y: 16, w: TAB_W, h: 52, label: name, tab: -1, isTab: true, click: () => (menu.tab = i), active: () => menu.tab === i }));
+  // Time & weather
+  curTab = 0;
+  label("Set the time", 224);
+  label("How fast time passes", 316);
+  label("Weather", 414);
   row(TIME_PRESETS, 228, 56, 16, (h) => setTime(h), () => false);
   row(TIME_SPEEDS, 322, 56, 16, (s) => (game.speed = s), (s) => game.speed === s);
   row(WEATHER_BUTTONS.slice(0, 4), 420, 56, 16, (id) => setWeatherPreset(id), weatherIs);
   row(WEATHER_BUTTONS.slice(4), 490, 56, 16, (id) => (id === "random" ? setRandomWeather() : setWeatherPreset(id)), weatherIs);
+  // World
+  curTab = 1;
+  label("World", 160, 30, "#e6efee");
+  label("Aurora (on clear nights)", 214);
+  row([["Off", 0], ["On", 1]], 226, 60, 16, (i) => ((opts.aurora = i), applyOpts()), (i) => opts.aurora === i, 60, 380);
+  label("Star brightness", 326);
+  row(STAR_LEVELS.map(([n], i) => [n, i]), 338, 60, 16, (i) => ((opts.stars = i), applyOpts()), (i) => opts.stars === i);
+  label("Wave height", 438);
+  row(WAVE_LEVELS.map(([n], i) => [n, i]), 450, 60, 16, (i) => ((opts.waves = i), applyOpts()), (i) => opts.waves === i);
+  label("Sand mark detail (changing it smooths the sand)", 550);
+  row(SAND_LEVELS.map(([n], i) => [n, i]), 562, 60, 16, (i) => ((opts.sand = i), applyOpts()), (i) => opts.sand === i, 60, 590);
+  mbtns.push({ tab: 1, x: 60, y: 660, w: 380, h: 60, label: "Smooth the sand", click: () => clearImprint(), active: () => false });
+  // Performance
+  curTab = 2;
+  label("Performance", 160, 30, "#e6efee");
   const q = [["Off", 0], ["Low", 1], ["Medium", 2], ["High", 3]];
-  row(q, 650, 52, 16, (i) => ((perf.clouds = i), applyPerf()), (i) => perf.clouds === i);
-  row(q, 734, 52, 16, (i) => ((perf.rays = i), applyPerf()), (i) => perf.rays === i);
-  row([["Off", 0], ["On", 1]], 818, 52, 16, (i) => ((perf.shadows = i), applyPerf()), (i) => perf.shadows === i, 60, 380);
-  mbtns.push({ x: 812, y: 16, w: 72, h: 52, label: "✕", click: () => toggleMenu(false), active: () => false });
+  label("Clouds (the costliest part of the sky)", 214);
+  row(q, 226, 60, 16, (i) => ((perf.clouds = i), applyPerf()), (i) => perf.clouds === i);
+  label("God rays", 326);
+  row(q, 338, 60, 16, (i) => ((perf.rays = i), applyPerf()), (i) => perf.rays === i);
+  label("Clouds shade the sea and sand", 438);
+  row([["Off", 0], ["On", 1]], 450, 60, 16, (i) => ((perf.shadows = i), applyPerf()), (i) => perf.shadows === i, 60, 380);
+  mbtns.push({ tab: -1, x: 812, y: 16, w: 72, h: 52, label: "✕", click: () => toggleMenu(false), active: () => false });
 }
+const tabBtns = () => mbtns.filter((b) => b.tab === -1 || b.tab === menu.tab);
 const menuLasers = [];
 for (const h of hands) {
   const laser = new THREE.Mesh(new THREE.CylinderGeometry(0.0025, 0.0025, 1, 6).rotateX(Math.PI / 2).translate(0, 0, -0.5), new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0.8, depthTest: false }));
@@ -5655,51 +5934,42 @@ function drawMenu() {
   c.strokeStyle = "rgba(160, 220, 235, 0.35)";
   c.lineWidth = 3;
   c.stroke();
-  c.fillStyle = "#e6efee";
-  c.font = "700 36px system-ui, sans-serif";
   c.textAlign = "left";
-  c.fillText("Time & weather", 60, 56);
-  c.font = "600 54px system-ui, sans-serif";
-  c.fillStyle = "#ffd98a";
-  c.fillText(clockText(game.hours), 60, 140);
-  c.font = "26px system-ui, sans-serif";
-  c.fillStyle = "#9fd8d2";
-  c.fillText(weather.locked ? "Weather: " + (weather.preset || "") : "Weather: random", 280, 134);
-  // the time bar
-  c.fillStyle = "rgba(255,255,255,0.14)";
-  c.fillRect(SLIDER.x, SLIDER.y + 11, SLIDER.w, 12);
-  const grd = c.createLinearGradient(SLIDER.x, 0, SLIDER.x + SLIDER.w, 0);
-  grd.addColorStop(0, "#15204a");
-  grd.addColorStop(0.25, "#ff9a5a");
-  grd.addColorStop(0.5, "#8fd0ff");
-  grd.addColorStop(0.75, "#ff6a5a");
-  grd.addColorStop(1, "#15204a");
-  c.fillStyle = grd;
-  c.fillRect(SLIDER.x, SLIDER.y + 13, SLIDER.w, 8);
-  const kx = SLIDER.x + (game.hours / 24) * SLIDER.w;
-  c.fillStyle = "#fff";
-  c.beginPath();
-  c.arc(kx, SLIDER.y + 17, 17, 0, 6.283);
-  c.fill();
-  c.fillStyle = "#8fa6a8";
-  c.font = "22px system-ui, sans-serif";
-  c.fillText("Set the time", 60, 224);
-  c.fillText("How fast time passes", 60, 316);
-  c.fillText("Weather", 60, 414);
-  c.fillStyle = "#e6efee";
-  c.font = "700 30px system-ui, sans-serif";
-  c.fillText("Performance", 60, 604);
-  c.fillStyle = "#8fa6a8";
-  c.font = "22px system-ui, sans-serif";
-  c.fillText("Clouds (the costliest part of the sky)", 60, 640);
-  c.fillText("God rays", 60, 724);
-  c.fillText("Clouds shade the sea and sand", 60, 808);
+  if (menu.tab === 0) {
+    c.font = "600 54px system-ui, sans-serif";
+    c.fillStyle = "#ffd98a";
+    c.fillText(clockText(game.hours), 60, 140);
+    c.font = "26px system-ui, sans-serif";
+    c.fillStyle = "#9fd8d2";
+    c.fillText(weather.locked ? "Weather: " + (weather.preset || "") : "Weather: random", 280, 134);
+    c.fillStyle = "rgba(255,255,255,0.14)";
+    c.fillRect(SLIDER.x, SLIDER.y + 11, SLIDER.w, 12);
+    const grd = c.createLinearGradient(SLIDER.x, 0, SLIDER.x + SLIDER.w, 0);
+    grd.addColorStop(0, "#15204a");
+    grd.addColorStop(0.25, "#ff9a5a");
+    grd.addColorStop(0.5, "#8fd0ff");
+    grd.addColorStop(0.75, "#ff6a5a");
+    grd.addColorStop(1, "#15204a");
+    c.fillStyle = grd;
+    c.fillRect(SLIDER.x, SLIDER.y + 13, SLIDER.w, 8);
+    const kx = SLIDER.x + (game.hours / 24) * SLIDER.w;
+    c.fillStyle = "#fff";
+    c.beginPath();
+    c.arc(kx, SLIDER.y + 17, 17, 0, 6.283);
+    c.fill();
+  }
+  for (const l of mlabels) {
+    if (l.tab !== menu.tab) continue;
+    c.fillStyle = l.color;
+    c.font = (l.size > 24 ? "700 " : "") + l.size + "px system-ui, sans-serif";
+    c.fillText(l.text, l.x, l.y);
+  }
   c.textAlign = "right";
   c.fillStyle = fpsColor();
   c.font = "700 30px system-ui, sans-serif";
-  c.fillText(fpsText(), 790, 54);
+  c.fillText(fpsText(), 840, 140);
   c.textAlign = "left";
-  for (const b of mbtns) {
+  for (const b of tabBtns()) {
     const hot = menuLasers.some((l) => l.hover === b);
     const on = b.active();
     c.fillStyle = on ? "#2fa88a" : hot ? "#3b5a68" : "#26363f";
@@ -5741,15 +6011,23 @@ function menuHit(h) {
 
 // ----- the panel on a screen -----
 const gm = $("gmenu");
-gm.innerHTML = `<h3>Time &amp; weather <span id="gm-fps"></span></h3><div class="big" id="gm-clock"></div>
+gm.innerHTML = `<div class="tabs" id="gm-tabs"></div>
+<h3><span id="gm-fps"></span></h3>
+<div class="pane" data-tab="0"><div class="big" id="gm-clock"></div>
 <input id="gm-slider" type="range" min="0" max="24" step="0.05">
 <div class="lbl">Set the time</div><div class="row" id="gm-presets"></div>
 <div class="lbl">How fast time passes</div><div class="row" id="gm-speed"></div>
-<div class="lbl">Weather</div><div class="row" id="gm-weather"></div>
-<h4>Performance</h4>
+<div class="lbl">Weather</div><div class="row" id="gm-weather"></div></div>
+<div class="pane" data-tab="1">
+<div class="lbl">Aurora (on clear nights)</div><div class="row" id="gm-aurora"></div>
+<div class="lbl">Star brightness</div><div class="row" id="gm-stars"></div>
+<div class="lbl">Wave height</div><div class="row" id="gm-waves"></div>
+<div class="lbl">Sand mark detail (changing it smooths the sand)</div><div class="row" id="gm-sand"></div>
+<div class="row" style="margin-top:8px"><button id="gm-smooth">Smooth the sand</button></div></div>
+<div class="pane" data-tab="2">
 <div class="lbl">Clouds (the costliest part of the sky)</div><div class="row" id="gm-clouds"></div>
 <div class="lbl">God rays</div><div class="row" id="gm-rays"></div>
-<div class="lbl">Clouds shade the sea and sand</div><div class="row" id="gm-shadows"></div>
+<div class="lbl">Clouds shade the sea and sand</div><div class="row" id="gm-shadows"></div></div>
 <div class="hint">X or Esc closes</div>`;
 const gmButtons = [];
 const addDomRow = (id, list, onClick, active) => {
@@ -5761,6 +6039,18 @@ const addDomRow = (id, list, onClick, active) => {
     gmButtons.push({ b, active: () => active(val) });
   }
 };
+MENU_TABS.forEach((name, i) => {
+  const b = document.createElement("button");
+  b.textContent = name;
+  b.onclick = () => ((menu.tab = i), refreshDomMenu());
+  $("gm-tabs").appendChild(b);
+  gmButtons.push({ b, active: () => menu.tab === i });
+});
+addDomRow("gm-aurora", [["Off", 0], ["On", 1]], (i) => ((opts.aurora = i), applyOpts()), (i) => opts.aurora === i);
+addDomRow("gm-stars", STAR_LEVELS.map(([n], i) => [n, i]), (i) => ((opts.stars = i), applyOpts()), (i) => opts.stars === i);
+addDomRow("gm-waves", WAVE_LEVELS.map(([n], i) => [n, i]), (i) => ((opts.waves = i), applyOpts()), (i) => opts.waves === i);
+addDomRow("gm-sand", SAND_LEVELS.map(([n], i) => [n, i]), (i) => ((opts.sand = i), applyOpts()), (i) => opts.sand === i);
+$("gm-smooth").onclick = () => clearImprint();
 addDomRow("gm-presets", TIME_PRESETS, (h) => setTime(h), () => false);
 addDomRow("gm-speed", TIME_SPEEDS, (s) => (game.speed = s), (s) => game.speed === s);
 addDomRow("gm-clouds", [["Off", 0], ["Low", 1], ["Medium", 2], ["High", 3]], (i) => ((perf.clouds = i), applyPerf()), (i) => perf.clouds === i);
@@ -5774,6 +6064,7 @@ function refreshDomMenu() {
   $("gm-fps").style.color = fpsColor();
   if (document.activeElement !== $("gm-slider")) $("gm-slider").value = game.hours;
   for (const g of gmButtons) g.b.classList.toggle("on", g.active());
+  gm.querySelectorAll(".pane").forEach((p) => (p.hidden = +p.dataset.tab !== menu.tab));
 }
 
 function toggleMenu(force) {
@@ -5826,8 +6117,8 @@ function updateMenu(dt) {
     const trig = trigDown(h);
     if (hit) {
       l.dot.position.copy(hit.point);
-      for (const b of mbtns) if (hit.px >= b.x && hit.px <= b.x + b.w && hit.py >= b.y && hit.py <= b.y + b.h) l.hover = b;
-      const onBar = hit.px >= SLIDER.x - 20 && hit.px <= SLIDER.x + SLIDER.w + 20 && hit.py >= SLIDER.y - 14 && hit.py <= SLIDER.y + SLIDER.h + 14;
+      for (const b of tabBtns()) if (hit.px >= b.x && hit.px <= b.x + b.w && hit.py >= b.y && hit.py <= b.y + b.h) l.hover = b;
+      const onBar = menu.tab === 0 && hit.px >= SLIDER.x - 20 && hit.px <= SLIDER.x + SLIDER.w + 20 && hit.py >= SLIDER.y - 14 && hit.py <= SLIDER.y + SLIDER.h + 14;
       if (trig && !l.trigWas) {
         if (l.hover) {
           l.hover.click();
@@ -5840,7 +6131,7 @@ function updateMenu(dt) {
     l.trigWas = trig;
     hoverSig += (l.hover ? l.hover.label : "-") + "|";
   }
-  const sig = `${Math.floor(game.hours * 60)}|${game.speed}|${weather.locked}|${weather.preset}|${perf.clouds}${perf.rays}${perf.shadows}|${fpsText()}|${hoverSig}`;
+  const sig = `${menu.tab}|${Math.floor(game.hours * 60)}|${game.speed}|${weather.locked}|${weather.preset}|${perf.clouds}${perf.rays}${perf.shadows}|${opts.aurora}${opts.stars}${opts.waves}${opts.sand}|${fpsText()}|${hoverSig}`;
   if (sig !== menu.sig) {
     menu.sig = sig;
     drawMenu();
@@ -5872,6 +6163,31 @@ function frame(now) {
   updatePlayer(dt);
   rig.updateMatrixWorld(true);
   camera.getWorldPosition(camPos);
+  {
+    // under the water? (a little hysteresis so the surface doesn't flicker)
+    const sh = waveHeight(camPos.x, camPos.z, t);
+    const u = camPos.y < sh + (player.under ? 0.03 : -0.03) && player.waterSm - groundY(player.x, player.z) > 0.4;
+    if (u !== player.under) {
+      player.under = u;
+      audio.underwater(u);
+      if (!u) splash(camPos.x, sh, camPos.z, 8, 1.6);
+    }
+    shared.uUnder.value = u ? 1 : 0;
+    water.renderOrder = u ? -5 : 1; // from below the surface is drawn first, so it hides what is above it
+    water.material.depthWrite = u;
+    sky.visible = !u;
+    farOcean.visible = !u;
+    foamLayer.visible = !u;
+    if (u) {
+      shared.uUnderCol.value.setRGB(0.03, 0.3, 0.36).multiplyScalar(0.12 + 0.88 * clamp(shared.uLightLevel.value, 0, 1));
+      scene.fog.color.copy(shared.uUnderCol.value);
+      scene.fog.near = 0.5;
+      scene.fog.far = 30;
+      landUniforms.uFogN.value = 0.5;
+      landUniforms.uFogF.value = 30;
+      renderer.setClearColor(shared.uUnderCol.value);
+    }
+  }
   skyCache.update(camPos);
 
   updateSky(dt, t, env.lampsOn);
@@ -5892,6 +6208,7 @@ function frame(now) {
   updateImprint(dt);
   updateLighthouse(dt, env.lampsOn);
   updateRain(dt, env.lightLevel);
+  if (player.under) rain.visible = false;
   audio.update(weather.value, wx.rain, waveScale, Math.abs(shoreDistJS(player.x, player.z)));
 
   // Everything big follows the camera, so the sea, sky and horizon are always centred on you
@@ -5948,7 +6265,7 @@ addEventListener("resize", () => {
 
 renderer.setAnimationLoop(frame);
 // handy for testing in a desktop browser
-window.__lt = { perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
+window.__lt = { blocked, opts, applyOpts, rockSurfaces, rockSurfaceAt, surfaceAt, setImprintRes, camPos, perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
 })();
 </script>
 </body>
