@@ -390,11 +390,18 @@ const WAVE_DEFS = [
   { ang: -0.45, len: 33, steep: 0.049 },
   { ang: 0.9, len: 18, steep: 0.035 },
 ];
-const WAVES = WAVE_DEFS.map((w) => ({ dx: Math.sin(w.ang), dz: -Math.cos(w.ang), k: (Math.PI * 2) / w.len, steep: w.steep }));
+const WAVES = WAVE_DEFS.map((w) => ({ dx: Math.sin(w.ang), dz: -Math.cos(w.ang), k: (Math.PI * 2) / w.len, steep: w.steep, a: w.steep / ((Math.PI * 2) / w.len), c: Math.sqrt(9.8 / ((Math.PI * 2) / w.len)) }));
 let waveScale = 1;
 
 // ===== The island, its beach and the breaking waves: one description, in GLSL and in JS =====
 const ISL = { x: 0, z: -190, r: 90 };
+// The dock: a timber pier from the dunes out to sea, on the west side of the start. The water around it is sheltered
+// (a breakwater and a dredged basin) so the boat can lie quietly alongside.
+const DOCK_ANG = Math.PI / 2 + 0.2;
+const DOCK = { nx: Math.cos(DOCK_ANG), nz: Math.sin(DOCK_ANG), r0: ISL.r - 10, r1: ISL.r + 30, y: 0.85 };
+const HARBOR = { x: ISL.x + DOCK.nx * (ISL.r + 22), z: ISL.z + DOCK.nz * (ISL.r + 22), r: 34 };
+const harborCalmJS = (x, z) => 1 - 0.85 * Math.exp(-((x - HARBOR.x) ** 2 + (z - HARBOR.z) ** 2) / (HARBOR.r * HARBOR.r));
+const harborDredgeJS = (x, z) => 1.7 * Math.exp(-((x - HARBOR.x) ** 2 + (z - HARBOR.z) ** 2) / 196);
 const BREAK_L = 24; // wavelength of a breaker, metres
 const BREAK_T = 6.5; // its period, seconds
 
@@ -404,13 +411,19 @@ const SHORE_GLSL = /* glsl */ `
   const float BREAK_L = ${BREAK_L.toFixed(1)};
   const float BREAK_T = ${BREAK_T.toFixed(1)};
 
+  const vec2 HARBOR_C = vec2(${HARBOR.x.toFixed(2)}, ${HARBOR.z.toFixed(2)});
+  const float HARBOR_R = ${HARBOR.r.toFixed(1)};
+  // the sheltered water round the dock, and the dredged basin the boat floats in
+  float harborCalm(vec2 p) { vec2 q = p - HARBOR_C; return 1.0 - 0.85 * exp(-dot(q, q) / (HARBOR_R * HARBOR_R)); }
+  float harborDredge(vec2 p) { vec2 q = p - HARBOR_C; return 1.7 * exp(-dot(q, q) / 196.0); }
+
   float shoreDist(vec2 p) { return length(p - ISL_C) - ISL_R; } // metres out to sea (negative on land)
   float shoreCoord(vec2 p) { return -shoreDist(p); }             // grows toward the shore
 
   // Height of the ground: a sand shelf out to sea that deepens to 45 m, a beach and low dunes on land
   float bedHeight(vec2 p) {
     float d = shoreDist(p);
-    if (d > 0.0) return -45.0 * (1.0 - exp(-d * 0.05 / 45.0));
+    if (d > 0.0) return -45.0 * (1.0 - exp(-d * 0.05 / 45.0)) - harborDredge(p);
     float bump = (sin(p.x * 0.11) * sin(p.y * 0.09) * 0.5 + 0.5) * 2.4 * (1.0 - smoothstep(-40.0, 0.0, d));
     return min(-d * 0.06, 5.0) + bump;
   }
@@ -448,7 +461,7 @@ const SHORE_GLSL = /* glsl */ `
   float swashLevel(vec2 p, float t) {
     vec2 q = p - ISL_C;
     float ang = atan(q.y, q.x);
-    return 0.3 * (0.5 + 0.5 * sin(t * 6.2832 / BREAK_T + ang * 3.0));
+    return harborCalm(p) * 0.3 * (0.5 + 0.5 * sin(t * 6.2832 / BREAK_T + ang * 3.0));
   }
 `;
 
@@ -456,7 +469,7 @@ const SHORE_GLSL = /* glsl */ `
 const shoreDistJS = (x, z) => Math.hypot(x - ISL.x, z - ISL.z) - ISL.r;
 function bedHeightJS(x, z) {
   const d = shoreDistJS(x, z);
-  if (d > 0) return -45 * (1 - Math.exp((-d * 0.05) / 45));
+  if (d > 0) return -45 * (1 - Math.exp((-d * 0.05) / 45)) - harborDredgeJS(x, z);
   const bump = (Math.sin(x * 0.11) * Math.sin(z * 0.09) * 0.5 + 0.5) * 2.4 * (1 - smooth(-40, 0, d));
   return Math.min(-d * 0.06, 5.0) + bump;
 }
@@ -474,12 +487,12 @@ function breakHeightJS(u, stage) {
   const w = bd < 0 ? wf : 0.32;
   return Math.exp(-(bd * bd) / (w * w));
 }
-const swashJS = (x, z, t) => 0.3 * (0.5 + 0.5 * Math.sin((t * 6.2832) / BREAK_T + Math.atan2(z - ISL.z, x - ISL.x) * 3));
+const swashJS = (x, z, t) => harborCalmJS(x, z) * 0.3 * (0.5 + 0.5 * Math.sin((t * 6.2832) / BREAK_T + Math.atan2(z - ISL.z, x - ISL.x) * 3));
 
 const _d = { x: 0, y: 0, z: 0 };
 function waveDisp(x0, z0, t, out) {
   const depth = -bedHeightJS(x0, z0);
-  const damp = lerp(0.12, 1, smooth(0.5, 8, depth)); // waves shrink in shallow water
+  const damp = lerp(0.12, 1, smooth(0.5, 8, depth)) * harborCalmJS(x0, z0); // waves shrink in shallow water, and in the harbour
   let steepSum = 0;
   for (const w of WAVES) steepSum += w.steep;
   const sideways = Math.min(1, 0.6 / Math.max(steepSum * waveScale * damp, 1e-4));
@@ -495,7 +508,7 @@ function waveDisp(x0, z0, t, out) {
     dz += w.dz * (q / w.k) * cf;
   }
   if (depth < 8) {
-    const bA = (0.3 + 0.4 * waveScale) * breakAmpJS(depth);
+    const bA = (0.3 + 0.4 * waveScale) * breakAmpJS(depth) * harborCalmJS(x0, z0);
     if (bA > 0) dy += breakHeightJS(breakUJS(x0, z0, t), breakStageJS(depth)) * bA;
   }
   dy += (1 - smooth(0, 1.2, depth)) * swashJS(x0, z0, t);
@@ -635,7 +648,7 @@ const FOAM_GLSL = /* glsl */ `
     float capDensity = smoothstep(0.8, 0.98, crest + (foamNoise - 0.5) * 0.3) * caps * 1.4;
     // Breakers: solid white where the lip pours over and the white water tumbles in, ageing into lace behind,
     // and a thin veil of old foam over the whole surf zone. It keeps going right up the beach.
-    float foamSize = clamp(0.4 + ws * 0.6, 0.0, 1.0) * (1.0 - smoothstep(2.5, 8.0, bedDepth));
+    float foamSize = clamp(0.4 + ws * 0.6, 0.0, 1.0) * (1.0 - smoothstep(2.5, 8.0, bedDepth)) * harborCalm(w.xz);
     float curl = clamp(stage - 0.6, 0.0, 1.0);
     float lipFoam = exp(-(((bd + 0.01) / 0.02) * ((bd + 0.01) / 0.02))) * smoothstep(0.7, 1.1, stage);
     float trail = bd >= 0.0 ? exp(-bd * mix(9.0, 4.5, clamp(stage - 1.0, 0.0, 1.0))) * curl : 0.0;
@@ -672,7 +685,7 @@ const WATER_VERTEX = /* glsl */ `
     float damp = mix(0.12, 1.0, smoothstep(0.5, 8.0, depth));
     // Calm the waves near the edge of the grid so its border never wobbles into view
     float edge = 1.0 - smoothstep(${(WATER_SIZE * 0.39).toFixed(1)}, ${(WATER_SIZE * 0.485).toFixed(1)}, max(abs(position.x), abs(position.z)));
-    damp *= edge;
+    damp *= edge * harborCalm(wp.xz);
 
     // Gerstner waves. The sideways (horizontal) push is capped so crests can never fold over
     // into loops, and each wave fades out with distance before the grid gets too coarse to draw it.
@@ -702,7 +715,7 @@ const WATER_VERTEX = /* glsl */ `
 
     // Breaking waves in the shallows: their height, and a lean toward the shore as the lip curls over.
     // Their slope is added to the surface normal. The lean is capped so the surface never folds over itself.
-    float bA = depth < 8.0 ? (0.3 + 0.4 * uWaveScale) * breakAmp(depth) * edge : 0.0;
+    float bA = depth < 8.0 ? (0.3 + 0.4 * uWaveScale) * breakAmp(depth) * edge * harborCalm(wp.xz) : 0.0;
     if (bA > 0.0) {
       float stage = breakStage(depth);
       float lean = min(bA, 1.0);
@@ -1932,7 +1945,12 @@ const dotTexture = (() => {
 lighthouse.glow.material.map = dotTexture;
 
 // ===== Weather =====
-const weather = { fog: 0, fogTarget: 0, value: 0.15, target: 0.15, windAngle: -Math.PI / 2, windSpeed: 6, flash: 0, secondFlash: -1, strikeTimer: 6, cloudOffset: new THREE.Vector2(), auto: true, autoTimer: 70 };
+// Coastline's weather: a forecast that moves between clear, cloud, rain and storm, plus separate "fog days" that
+// thicken and thin. Each visit starts at a random point in it.
+const WEATHER_TARGETS = [0.1, 0.1, 0.35, 0.6, 0.95];
+const _fogDay = Math.random() < 0.3;
+const _w0 = _fogDay ? 0.1 : WEATHER_TARGETS[Math.floor(Math.random() * WEATHER_TARGETS.length)];
+const weather = { fogDay: _fogDay, timer: rand(20, 50), fogTimer: rand(60, 120), fog: _fogDay ? 0.9 : 0, fogTarget: _fogDay ? 0.9 : 0, value: _w0, target: _w0, windAngle: -Math.PI / 2, windSpeed: 6, flash: 0, secondFlash: -1, strikeTimer: 6, cloudOffset: new THREE.Vector2(), auto: true, autoTimer: 70 };
 const wx = { cover: 0, overcast: 0, rain: 0, storm: 0, fog: 0 };
 
 // ----- Rain -----
@@ -2013,23 +2031,21 @@ function strike() {
 }
 
 function updateWeather(dt) {
-  if (weather.auto) {
-    weather.autoTimer -= dt;
-    if (weather.autoTimer <= 0) {
-      // the next spell of weather, picked at random: some clear days, some cloud, rain, the odd storm, banks of fog
-      const STATES = [
-        { v: 0.06, fog: 0, w: 3 }, { v: 0.18, fog: 0, w: 3 }, { v: 0.32, fog: 0, w: 2 }, { v: 0.5, fog: 0, w: 2 },
-        { v: 0.68, fog: 0, w: 2 }, { v: 0.95, fog: 0, w: 1 }, { v: 0.1, fog: 1, w: 1.5 }, { v: 0.28, fog: 0.5, w: 1.5 },
-      ];
-      let r = Math.random() * STATES.reduce((a, s) => a + s.w, 0);
-      const pick = STATES.find((s) => (r -= s.w) < 0) || STATES[0];
-      weather.target = pick.v;
-      weather.fogTarget = pick.fog;
-      weather.autoTimer = rand(70, 140);
-    }
+  weather.timer -= dt;
+  if (weather.timer <= 0) {
+    // Fog days stay calm (fog and wind don't go together)
+    const targets = weather.fogDay ? [0.1, 0.1, 0.35] : WEATHER_TARGETS;
+    weather.target = targets[Math.floor(Math.random() * targets.length)];
+    weather.timer = rand(45, 95);
   }
-  weather.fog += clamp(weather.fogTarget - weather.fog, -0.02 * dt, 0.02 * dt);
-  weather.value += clamp(weather.target - weather.value, -0.03 * dt, 0.03 * dt);
+  // On a fog day the fog bank thickens and thins; now and then it lifts enough to see a little farther
+  weather.fogTimer -= dt;
+  if (weather.fogTimer <= 0) {
+    weather.fogTarget = weather.fogDay ? (Math.random() < 0.7 ? 1 : 0.45) : 0;
+    weather.fogTimer = rand(60, 120);
+  }
+  weather.fog += clamp(weather.fogTarget - weather.fog, -0.01 * dt, 0.01 * dt);
+  weather.value += clamp(weather.target - weather.value, -0.015 * dt, 0.015 * dt);
   weather.windAngle += rand(-0.5, 0.5) * 0.05 * dt;
   weather.windAngle = clamp(weather.windAngle, -Math.PI / 2 - 0.6, -Math.PI / 2 + 0.6); // always blowing toward the island, more or less
   const w = weather.value;
@@ -2255,7 +2271,7 @@ const audio = (() => {
 // ===== The player: walking on the island beach =====
 const player = { x: ISL.x, z: ISL.z + ISL.r - 9, y: 0 };
 player.y = groundY(player.x, player.z);
-let yaw = -Math.PI / 2; // facing along the beach, the sea on your right
+let yaw = Math.PI / 2 + 0.35; // facing west along the beach, toward the dock, the sea on your left
 let pitch = 0;
 colliders.push({ x: lighthouse.group.position.x, z: lighthouse.group.position.z, r: 2.6 });
 
@@ -2334,273 +2350,1367 @@ function applyUnderwater(material, wag = 0) {
   return material;
 }
 
-// Plants that sway with the swell: bend grows toward the tip, and the whole thing rocks to and fro
-function seaMaterial(sway) {
-  const m = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
-  applyUnderwater(m, 0);
-  if (sway) {
-    const prev = m.onBeforeCompile;
-    m.onBeforeCompile = (sh) => {
-      prev(sh);
-      sh.vertexShader =
-        "attribute vec3 aBase;\nattribute vec3 aSway;\nuniform float uTime;\nuniform float uSwellAmp;\n" +
-        sh.vertexShader.replace(
-          "#include <begin_vertex>",
-          /* glsl */ `#include <begin_vertex>
-          {
-            float H = max(aSway.x, 0.1);
-            float hn = clamp((position.y - aBase.y) / H, 0.0, 1.4);
-            float k = hn * hn * aSway.y;
-            float ph = aSway.z;
-            float surge = sin(uTime * 0.95 + aBase.x * 0.11 + aBase.z * 0.09 + ph * 0.3);
-            float chop = sin(uTime * 1.7 + ph);
-            transformed.z -= (0.3 * surge + 0.08 * chop) * H * k * uSwellAmp;   // to and fro with the swell, toward the island
-            transformed.x += 0.07 * sin(uTime * 1.3 + ph * 2.0 + position.y * 2.0) * H * k * uSwellAmp;
-          }`
-        );
-      sh.uniforms.uSwellAmp = swellAmp;
-    };
-    m.customProgramCacheKey = () => "sea-sway";
-  }
-  return m;
+// ===== From Coastline: the reef, kelp forests, fish schools and the boat =====
+// (ported from Coastline's reef.js, life.js and boat.js; here they grow around the island instead of the mainland coast)
+const shapeModel = (name, res) => res; // (Coastline's model editor hook: nothing to edit here)
+const glowTexture = dotTexture;
+function hash2(x, z) {
+  const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
+  return s - Math.floor(s);
 }
-const swellAmp = { value: 0.6 };
+function noise2(x, z) {
+  const ix = Math.floor(x), iz = Math.floor(z);
+  const fx = x - ix, fz = z - iz;
+  const ux = fx * fx * (3 - 2 * fx), uz = fz * fz * (3 - 2 * fz);
+  const a = hash2(ix, iz), b = hash2(ix + 1, iz), c = hash2(ix, iz + 1), d = hash2(ix + 1, iz + 1);
+  return (a * (1 - ux) + b * ux) * (1 - uz) + (c * (1 - ux) + d * ux) * uz;
+}
 
-const reefSpot = (minD, maxD, spread = 1.7) => {
-  const a = Math.PI / 2 + rand(-spread, spread), d = rand(minD, maxD);
-  const x = ISL.x + Math.cos(a) * (ISL.r + d), z = ISL.z + Math.sin(a) * (ISL.r + d);
-  return { x, z, y: bedHeightJS(x, z), d };
+// Makes a material look like it's under the water (see applyUnderwater above)
+// ===== A tiny mesh kit: smooth-shaded parts with a colour per vertex, merged into one geometry =====
+const v3 = {
+  add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]],
+  sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
+  mul: (a, s) => [a[0] * s, a[1] * s, a[2] * s],
+  cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+  norm: (a) => {
+    const l = Math.hypot(a[0], a[1], a[2]) || 1;
+    return [a[0] / l, a[1] / l, a[2] / l];
+  },
 };
 
-// ----- Seagrass meadows and kelp -----
-const seaweedMesh = (() => {
-  const m = plantNew();
-  plantKind = 0;
-  const up = new THREE.Vector3(0, 1, 0);
-  // seagrass: dense short blades in the shallows
-  for (let i = 0; i < 420; i++) {
-    const c = reefSpot(7, 70);
-    if (jfbm(c.x * 0.05, c.z * 0.05, 4, 3) < 0.46) continue; // meadows, not an even carpet
-    for (let t = 0; t < 4; t++) {
-      const x = c.x + rand(-0.6, 0.6), z = c.z + rand(-0.6, 0.6), y = bedHeightJS(x, z);
-      if (y > -0.35) continue;
-      const base = new THREE.Vector3(x, y - 0.03, z);
-      for (let b = 0; b < 6; b++) {
-        const hgt = rand(0.35, 0.95), ang = rand(0, 6.28), ph = Math.random() * 6.28;
-        const bx = x + rand(-0.15, 0.15), bz = z + rand(-0.15, 0.15);
-        const bb = new THREE.Vector3(bx, y - 0.03, bz);
-        const lean = new THREE.Vector3(Math.cos(ang), 0, Math.sin(ang)).multiplyScalar(hgt * rand(0.1, 0.35));
-        const side = new THREE.Vector3(-Math.sin(ang + 1.2), 0, Math.cos(ang + 1.2)).multiplyScalar(0.02);
-        const mid = bb.clone().addScaledVector(up, hgt * 0.55).addScaledVector(lean, 0.4);
-        const tip = bb.clone().addScaledVector(up, hgt).add(lean);
-        const v = rand(0.8, 1.15);
-        const cb = new THREE.Color(0x1d4a2a).multiplyScalar(v), cm = new THREE.Color(0x3f8a3a).multiplyScalar(v), ct = new THREE.Color(0x8ac060).multiplyScalar(v);
-        plantTri(m, bb.clone().sub(side), bb.clone().add(side), mid.clone().sub(side), cb, cb, cm, bb, hgt, 0.7, 0.7, 0.7, ph);
-        plantTri(m, bb.clone().add(side), mid.clone().add(side), mid.clone().sub(side), cb, cm, cm, bb, hgt, 0.7, 0.7, 0.7, ph);
-        plantTri(m, mid.clone().sub(side), mid.clone().add(side), tip, cm, cm, ct, bb, hgt, 0.7, 0.7, 0.7, ph);
+function reefMesh() {
+  const pos = [];
+  const nor = [];
+  const col = [];
+  // A grid of vertices; f(i, j) gives { p: [x, y, z], c: [r, g, b] }. wrap joins the last column to the first.
+  function grid(rows, cols, f, wrap = false) {
+    const V = [];
+    const C = [];
+    for (let i = 0; i < rows; i++)
+      for (let j = 0; j < cols; j++) {
+        const v = f(i, j);
+        V.push(v.p);
+        C.push(v.c);
       }
+    const at = (i, j) => i * cols + (wrap ? j % cols : j);
+    const tris = [];
+    for (let i = 0; i < rows - 1; i++)
+      for (let j = 0; j < (wrap ? cols : cols - 1); j++) {
+        tris.push([at(i, j), at(i + 1, j), at(i, j + 1)], [at(i, j + 1), at(i + 1, j), at(i + 1, j + 1)]);
+      }
+    // Smooth normals (the materials are two-sided, so which way they face doesn't matter)
+    const N = V.map(() => [0, 0, 0]);
+    for (const [a, b, c] of tris) {
+      const n = v3.cross(v3.sub(V[b], V[a]), v3.sub(V[c], V[a]));
+      for (const k of [a, b, c]) for (let q = 0; q < 3; q++) N[k][q] += n[q];
     }
-  }
-  // kelp: tall frilly ribbons rooted on the deeper shelf
-  for (let i = 0; i < 160; i++) {
-    const c = reefSpot(30, 125);
-    if (jfbm(c.x * 0.04 + 9, c.z * 0.04, 2, 3) < 0.45) continue;
-    const nS = 3 + Math.floor(rand(0, 4));
-    for (let k = 0; k < nS; k++) {
-      const x = c.x + rand(-1, 1), z = c.z + rand(-1, 1), y = bedHeightJS(x, z);
-      const h = Math.min(rand(1.8, 4.6), -y - 0.4);
-      if (h < 1) continue;
-      const ph = Math.random() * 6.28, a = rand(0, 6.28), lean = rand(0.2, 0.7);
-      const base = new THREE.Vector3(x, y, z);
-      const S = new THREE.Vector3(Math.cos(a + 1.57), 0, Math.sin(a + 1.57));
-      const SEG = 10;
-      let prev = null;
-      for (let j = 0; j <= SEG; j++) {
-        const s = j / SEG;
-        const P = new THREE.Vector3(x + Math.cos(a) * lean * s * s * h * 0.5 + Math.sin(s * 5 + ph) * 0.05 * h * s, y + h * s, z + Math.sin(a) * lean * s * s * h * 0.5);
-        const w = lerp(0.2, 0.035, s) * (0.8 + 0.4 * Math.sin(s * 14 + ph));
-        const L = P.clone().addScaledVector(S, -w), R = P.clone().addScaledVector(S, w);
-        const col = new THREE.Color(0x2c3a0c).lerp(new THREE.Color(0x9a7a1c), s * 0.9 + 0.1 * Math.sin(ph)).multiplyScalar(rand(0.9, 1.1));
-        if (prev) {
-          plantTri(m, prev.L, prev.R, L, prev.col, prev.col, col, base, h, 1, 1, 1, ph);
-          plantTri(m, prev.R, R, L, prev.col, col, col, base, h, 1, 1, 1, ph);
-        }
-        prev = { L, R, col };
+    const Nn = N.map(v3.norm);
+    for (const t of tris)
+      for (const k of t) {
+        pos.push(...V[k]);
+        nor.push(...Nn[k]);
+        col.push(...C[k]);
       }
-    }
   }
-  const mesh = new THREE.Mesh(plantGeometry(m), seaMaterial(true));
-  mesh.renderOrder = 1.5;
-  mesh.frustumCulled = false;
-  scene.add(mesh);
-  return mesh;
-})();
-
-// ----- Corals: boulders with grooves, branching staghorn, tables and fans -----
-const coralMesh = (() => {
-  const list = [];
-  const PAL = [0xff8a3d, 0xff6fa3, 0xd13fa0, 0x8a4fd0, 0xf0d040, 0x2fc5b0, 0x7ab648, 0x4a7de0, 0xc9a87a, 0xe8604c];
-  const pick = () => new THREE.Color(PAL[Math.floor(Math.random() * PAL.length)]);
-  const UPV = new THREE.Vector3(0, 1, 0);
-  const place = (g, x, y, z, rotY) => {
-    g.rotateY(rotY);
-    g.translate(x, y, z);
-    return g;
-  };
-  const branch = (o, dir, len, rad, depth, color) => {
-    const end = o.clone().addScaledVector(dir, len);
-    const g = new THREE.CylinderGeometry(rad * 0.7, rad, len, 6, 1).translate(0, len / 2, 0);
-    g.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(UPV, dir)));
-    g.translate(o.x, o.y, o.z);
-    list.push({ g, color: depth === 0 ? color.clone().lerp(new THREE.Color(0xffffff), 0.35) : color });
-    if (depth > 0)
-      for (let k = 0; k < (depth > 1 ? 3 : 2); k++) {
-        const nd = dir.clone().add(new THREE.Vector3(rand(-0.7, 0.7), rand(0.1, 0.5), rand(-0.7, 0.7))).normalize();
-        branch(end, nd, len * 0.72, rad * 0.7, depth - 1, color);
-      }
-  };
-  for (let c = 0; c < 46; c++) {
-    const centre = reefSpot(9, 120);
-    if (jfbm(centre.x * 0.06, centre.z * 0.06, 3.1, 3) < 0.5) continue;
-    const base = pick();
-    const n = 3 + Math.floor(rand(0, 4));
-    for (let i = 0; i < n; i++) {
-      const x = centre.x + rand(-3, 3), z = centre.z + rand(-3, 3), y = bedHeightJS(x, z);
-      if (y > -0.5 || y < -9) continue;
-      const kind = Math.random();
-      const color = Math.random() < 0.6 ? base.clone().multiplyScalar(rand(0.85, 1.1)) : pick();
-      if (kind < 0.3) {
-        // boulder / brain coral: a lumpy dome with winding grooves
-        const g = new THREE.IcosahedronGeometry(1, 2);
-        const p = g.attributes.position;
-        const s = rand(0.25, 0.65);
-        for (let k = 0; k < p.count; k++) {
-          const px = p.getX(k), py = p.getY(k), pz = p.getZ(k);
-          const groove = 0.05 * Math.sin(px * 16 + Math.sin(pz * 9) * 2 + py * 5) * Math.sin(pz * 13 + px * 4);
-          const r = 1 + groove + 0.18 * (jnoise(px * 2 + x, py * 2, pz * 2) - 0.5);
-          p.setXYZ(k, px * r * s, Math.max(py, -0.2) * r * s * 0.75, pz * r * s);
-        }
-        g.computeVertexNormals();
-        list.push({ g: place(g, x, y + 0.02, z, 0), color: color.clone().lerp(new THREE.Color(0xb59a6a), 0.4) });
-      } else if (kind < 0.62) {
-        // staghorn: a few forking stems
-        for (let st = 0; st < 3; st++) {
-          const d = new THREE.Vector3(rand(-0.5, 0.5), 1, rand(-0.5, 0.5)).normalize();
-          branch(new THREE.Vector3(x + rand(-0.15, 0.15), y, z + rand(-0.15, 0.15)), d, rand(0.28, 0.4), 0.05, 2, color);
-        }
-      } else if (kind < 0.84) {
-        // table coral: a scalloped plate on a stem
-        const r = rand(0.35, 0.9), h = rand(0.25, 0.6);
-        const top = new THREE.CylinderGeometry(r, r * 0.85, 0.05, 16, 1);
-        const tp = top.attributes.position;
-        for (let k = 0; k < tp.count; k++) {
-          const ang = Math.atan2(tp.getZ(k), tp.getX(k));
-          const f = 1 + 0.12 * Math.sin(ang * 7) + 0.06 * jnoise(Math.cos(ang) * 3 + x, Math.sin(ang) * 3, z);
-          tp.setXYZ(k, tp.getX(k) * f, tp.getY(k) + 0.03 * Math.sin(ang * 5), tp.getZ(k) * f);
-        }
-        top.computeVertexNormals();
-        list.push({ g: place(top.translate(0, h, 0), x, y, z, 0), color });
-        list.push({ g: new THREE.CylinderGeometry(0.06, 0.1, h, 6).translate(x, y + h / 2, z), color: color.clone().multiplyScalar(0.7) });
-      } else {
-        // sea fan: a thin, rippled fan standing on edge
-        const g = new THREE.PlaneGeometry(1, 1, 10, 6);
-        const p = g.attributes.position;
-        const w = rand(0.5, 1.0);
-        for (let k = 0; k < p.count; k++) {
-          const u = p.getX(k) + 0.5, v = p.getY(k) + 0.5;
-          const fx = (u - 0.5) * w * (0.25 + 0.9 * v);
-          p.setXYZ(k, fx, v * w * 0.9, 0.06 * Math.sin(u * 20 + v * 6) + 0.05 * Math.sin(v * 3));
-        }
-        g.computeVertexNormals();
-        list.push({ g: place(g, x, y, z, rand(0, 6.28)), color: Math.random() < 0.5 ? new THREE.Color(0xa83ad0) : new THREE.Color(0xff7a2a) });
-      }
-    }
+  // An ellipsoid (or part of one, from latitude lat0 to lat1, 0 = top), dented by disp(dir) and coloured by color(dir)
+  function blob(c, r, lat0, lat1, segLat, segLon, disp = () => 1, color = () => [1, 1, 1]) {
+    grid(
+      segLat + 1,
+      segLon,
+      (i, j) => {
+        const th = lat0 + ((lat1 - lat0) * i) / segLat;
+        const ph = (2 * Math.PI * j) / segLon;
+        const d = [Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph)];
+        const k = disp(d);
+        return { p: [c[0] + d[0] * r[0] * k, c[1] + d[1] * r[1] * k, c[2] + d[2] * r[2] * k], c: color(d) };
+      },
+      true
+    );
   }
-  const mesh = new THREE.Mesh(mergeGeos(list), applyUnderwater(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }), 0));
-  mesh.renderOrder = 1.5;
-  mesh.frustumCulled = false;
-  scene.add(mesh);
-  return mesh;
-})();
-
-// ----- Schools of fish that swim together, wag their tails and scatter when you wade in -----
-const SCHOOLS = 9, PER = 22;
-const fishMesh = (() => {
-  const tri = (a, b, c) => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute([...a, ...b, ...c], 3));
-    g.setAttribute("normal", new THREE.Float32BufferAttribute([1, 0, 0, 1, 0, 0, 1, 0, 0], 3));
-    return g;
-  };
-  const geo = mergeGeos([
-    { g: new THREE.SphereGeometry(1, 10, 8).scale(0.09, 0.14, 0.3).translate(0, 0, -0.04) },
-    { g: tri([0, 0, 0.2], [0, 0.14, 0.45], [0, -0.14, 0.45]) },
-    { g: tri([0, 0.12, -0.12], [0, 0.25, 0.1], [0, 0.1, 0.15]) },
-  ]);
-  const p = geo.attributes.position, col = geo.attributes.color;
-  for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-    let k = y > 0.05 ? 0.72 : y < -0.05 ? 1.1 : 0.92; // darker back, pale belly
-    if (Math.sin(z * 38) > 0.55 && z > -0.2 && z < 0.2) k *= 0.6; // bands
-    if (z < -0.24 && Math.abs(x) > 0.05 && Math.abs(y) < 0.05) k = 0.08; // eye
-    col.setXYZ(i, k, k, k);
+  // A tapered tube from a to b
+  function tube(a, b, r0, r1, sides, c0, c1) {
+    const axis = v3.norm(v3.sub(b, a));
+    const helper = Math.abs(axis[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+    const u = v3.norm(v3.cross(axis, helper));
+    const w = v3.cross(axis, u);
+    grid(
+      2,
+      sides,
+      (i, j) => {
+        const ang = (2 * Math.PI * j) / sides;
+        const r = i ? r1 : r0;
+        const ring = v3.add(v3.mul(u, Math.cos(ang) * r), v3.mul(w, Math.sin(ang) * r));
+        return { p: v3.add(i ? b : a, ring), c: i ? c1 : c0 };
+      },
+      true
+    );
   }
-  const phases = new Float32Array(SCHOOLS * PER).map(() => Math.random() * 6.28);
-  geo.setAttribute("aPhase", new THREE.InstancedBufferAttribute(phases, 1));
-  const mat = applyUnderwater(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }), 0.07);
-  const mesh = new THREE.InstancedMesh(geo, mat, SCHOOLS * PER);
-  const tints = [0xb5c8e8, 0xffd930, 0xff7a24, 0x2f6cff, 0xff8aa0, 0x7de8b8, 0xf2f2f2, 0xffb02e, 0x8ad0ff];
-  for (let s = 0; s < SCHOOLS; s++) for (let f = 0; f < PER; f++) mesh.setColorAt(s * PER + f, new THREE.Color(tints[s % tints.length]).multiplyScalar(rand(0.85, 1.1)));
-  mesh.renderOrder = 1.5;
-  mesh.frustumCulled = false;
-  scene.add(mesh);
-  return mesh;
-})();
-const schools = Array.from({ length: SCHOOLS }, (_, s) => {
-  let home;
-  for (let t = 0; t < 30; t++) {
-    home = reefSpot(18, 90, 1.5);
-    if (home.y < -1.3) break;
+  // A flat strip from a to b, width w, lying in the plane with normal n
+  function ribbon(a, b, w0, w1, n, c0, c1) {
+    const side = v3.norm(v3.cross(v3.sub(b, a), n));
+    grid(2, 2, (i, j) => {
+      const half = (i ? w1 : w0) / 2;
+      return { p: v3.add(i ? b : a, v3.mul(side, j ? half : -half)), c: i ? c1 : c0 };
+    });
   }
   return {
-    home,
-    ax: rand(3, 9), az: rand(3, 9), w1: rand(0.08, 0.16) * (Math.random() < 0.5 ? -1 : 1), w2: rand(0.08, 0.16), p1: rand(0, 6.28), p2: rand(0, 6.28),
-    yBase: Math.max(home.y + 0.7, -rand(1.1, 2.4)), size: rand(0.8, 1.5),
-    fish: Array.from({ length: PER }, () => ({ off: new THREE.Vector3(rand(-1.2, 1.2), rand(-0.4, 0.4), rand(-1.6, 1.6)), ph: rand(0, 6.28) })),
+    blob,
+    tube,
+    ribbon,
+    data: () => ({ position: new Float32Array(pos), normal: new Float32Array(nor), color: new Float32Array(col) }),
   };
-});
-const fishDummy = new THREE.Object3D();
-function updateReef(dt, t) {
-  swellAmp.value = 0.35 + 0.5 * weather.value;
-  schools.forEach((sc, si) => {
-    const a1 = sc.w1 * t + sc.p1, a2 = sc.w2 * t + sc.p2;
-    const cx = sc.home.x + sc.ax * Math.cos(a1), cz = sc.home.z + sc.az * Math.sin(a2);
-    let vx = -sc.ax * sc.w1 * Math.sin(a1), vz = sc.az * sc.w2 * Math.cos(a2);
-    const vl = Math.hypot(vx, vz) || 1;
-    vx /= vl;
-    vz /= vl;
-    const cy = sc.yBase + 0.35 * Math.sin(0.3 * t + sc.p1);
-    sc.fish.forEach((f, fi) => {
-      const wob = Math.sin(t * 1.6 + f.ph) * 0.18;
-      let x = cx + -vz * (f.off.x + wob) + vx * f.off.z * Math.cos(t * 0.2 + f.ph * 0.3);
-      let z = cz + vx * (f.off.x + wob) + vz * f.off.z * Math.cos(t * 0.2 + f.ph * 0.3);
-      let y = cy + f.off.y + Math.sin(t * 0.9 + f.ph) * 0.1;
-      // scatter from anyone wading nearby
-      const dx = x - camPos.x, dz = z - camPos.z, d = Math.hypot(dx, dz);
-      if (d < 4) {
-        const push = ((4 - d) / 4) * 2.2;
-        x += (dx / (d || 1)) * push;
-        z += (dz / (d || 1)) * push;
+}
+
+// Seeded random numbers, so every tile of reef grows the same way each time it's filled in
+function seededRandom(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const bumps = (d, f, seed) => noise2(d[0] * f + seed, d[2] * f + d[1] * f * 1.7 + seed * 0.37);
+
+// ===== The shapes (about 1 m across; each placed copy is scaled and tinted) =====
+// Table coral: a broad flat plate on a short stalk, paler at the growing rim; sometimes a second tier
+function shapeTable(rng) {
+  const m = reefMesh();
+  m.tube([0, 0, 0], [0.05, 0.5, 0], 0.16, 0.1, 6, grey(0.45), grey(0.6));
+  const plate = (c, r, seed) =>
+    m.blob(
+      c,
+      [r, 0.08, r * 0.92],
+      0,
+      Math.PI,
+      5,
+      14,
+      (d) => 1 + 0.08 * (bumps(d, 3, seed) - 0.5),
+      // Radial ridges of growing branches, a pale growing rim, darker underneath
+      (d) => {
+        if (d[1] < -0.2) return grey(0.42);
+        const radial = Math.abs(Math.sin(Math.atan2(d[2], d[0]) * 23 + bumps(d, 5, seed) * 4));
+        return grey(0.62 + 0.18 * radial + 0.4 * Math.pow(1 - Math.abs(d[1]), 3) + 0.12 * (bumps(d, 9, seed) - 0.5));
       }
-      y = Math.min(y, -0.6);
-      fishDummy.position.set(x, y, z);
-      fishDummy.lookAt(x - vx - Math.sin(f.ph) * 0.15, y - 0.05 * Math.sin(t + f.ph), z - vz + Math.cos(f.ph) * 0.15); // nose forward, tail trailing
-      fishDummy.scale.setScalar(sc.size);
-      fishDummy.updateMatrix();
-      fishMesh.setMatrixAt(si * PER + fi, fishDummy.matrix);
+    );
+  plate([0.05, 0.55, 0], 1, rng() * 50);
+  if (rng() < 0.45) {
+    m.tube([0.05, 0.3, 0], [0.45, 0.32, 0.2], 0.08, 0.06, 5, grey(0.45), grey(0.55));
+    plate([0.55, 0.32, 0.25], 0.55, rng() * 50);
+  }
+  return m.data();
+}
+// Brain and boulder corals: lumpy domes with a meandering pattern
+function shapeBoulder(rng) {
+  const m = reefMesh();
+  const seed = rng() * 50;
+  const lumps = 1 + Math.floor(rng() * 3);
+  for (let k = 0; k < lumps; k++) {
+    const r = k ? rand(0.4, 0.65) : 1;
+    const c = k ? [rand(-0.7, 0.7), -0.05, rand(-0.7, 0.7)] : [0, -0.05, 0];
+    m.blob(
+      c,
+      [r, r * 0.72, r * 0.9],
+      0,
+      Math.PI / 2,
+      5,
+      13,
+      (d) => 1 + 0.18 * (bumps(d, 2.5, seed + k) - 0.5),
+      (d) => grey(0.55 + 0.45 * Math.abs(Math.sin(d[0] * 11 + Math.sin(d[2] * 9 + seed) * 2.2) * Math.sin(d[2] * 10 + d[1] * 5)))
+    );
+  }
+  return m.data();
+}
+// Branching coral: antler-like branches with pale growing tips (staghorn), or a dome of short fingers
+function shapeBranching(rng, fingers) {
+  const m = reefMesh();
+  if (fingers) {
+    m.blob([0, -0.05, 0], [0.75, 0.35, 0.7], 0, Math.PI / 2, 4, 12, () => 1, () => grey(0.6));
+    for (let k = 0; k < 22; k++) {
+      const a = rng() * Math.PI * 2;
+      const r = Math.sqrt(rng()) * 0.62;
+      const base = [Math.cos(a) * r, 0.3 * Math.sqrt(Math.max(0, 1 - (r / 0.75) ** 2)) - 0.03, Math.sin(a) * r];
+      const tip = v3.add(base, [Math.cos(a) * r * 0.25, rand(0.2, 0.42), Math.sin(a) * r * 0.25]);
+      m.tube(base, tip, 0.06, 0.04, 4, grey(0.62), grey(1.05));
+    }
+    return m.data();
+  }
+  const branch = (a, dir, len, r, depth) => {
+    const b = v3.add(a, v3.mul(dir, len));
+    m.tube(a, b, r, r * 0.75, 3, grey(0.55 + depth * 0.1), grey(depth === 3 ? 1.1 : 0.65 + depth * 0.1));
+    if (depth === 3) return;
+    for (let k = 0; k < 2; k++) {
+      const nd = v3.norm(v3.add(dir, [rand(-0.7, 0.7), rand(0.1, 0.6), rand(-0.7, 0.7)]));
+      branch(b, nd, len * 0.82, r * 0.72, depth + 1);
+    }
+  };
+  const trunks = 3 + Math.floor(rng() * 2);
+  for (let k = 0; k < trunks; k++) {
+    const a = (k / trunks) * Math.PI * 2 + rng();
+    branch([0, 0, 0], v3.norm([Math.cos(a) * 0.6, 1, Math.sin(a) * 0.6]), 0.32, 0.06, 0);
+  }
+  return m.data();
+}
+// Soft coral: a bush of fleshy, cauliflower-like lobes on short stems, brightest on top
+function shapeSoft(rng) {
+  const m = reefMesh();
+  const seed = rng() * 50;
+  for (let k = 0; k < 7; k++) {
+    const a = rng() * Math.PI * 2;
+    const r = Math.sqrt(rng()) * 0.42;
+    const h = 0.35 + rng() * 0.35 - r * 0.3;
+    const top = [Math.cos(a) * r, h, Math.sin(a) * r];
+    m.tube([top[0] * 0.3, 0, top[2] * 0.3], top, 0.06, 0.05, 4, grey(0.75), grey(0.85));
+    const s = rand(0.16, 0.26);
+    m.blob(
+      top,
+      [s * 1.1, s * 0.9, s * 1.1],
+      0,
+      Math.PI,
+      3,
+      6,
+      (d) => 1 + 0.25 * (bumps(d, 4, seed + k) - 0.5),
+      (d) => grey(0.72 + 0.35 * Math.max(0, d[1]))
+    );
+  }
+  return m.data();
+}
+// Sea fan (gorgonian): a flat, slightly curved lace of branches
+function shapeFan(rng) {
+  const m = reefMesh();
+  const bend = (p) => [p[0], p[1], 0.18 * p[0] * p[0]];
+  const branch = (a, ang, len, w, depth) => {
+    const b = [a[0] + Math.sin(ang) * len, a[1] + Math.cos(ang) * len, 0];
+    const tone = 0.55 + depth * 0.09;
+    m.ribbon(bend(a), bend(b), w, w * 0.8, [0, 0, 1], grey(tone), grey(tone + 0.09));
+    if (depth === 5) return;
+    const spread = rand(0.25, 0.5);
+    branch(b, ang - spread, len * 0.84, w * 0.78, depth + 1);
+    branch(b, ang + spread, len * 0.84, w * 0.78, depth + 1);
+  };
+  branch([0, 0, 0], rand(-0.15, 0.15), 0.3, 0.05, 0);
+  return m.data();
+}
+// Rock: a lumpy boulder, flat underneath, crusted with pink coralline algae and green turf on top
+function shapeRock(rng) {
+  const m = reefMesh();
+  const seed = rng() * 50;
+  m.blob(
+    [0, 0.25, 0],
+    [1, 0.6, 0.85],
+    0,
+    Math.PI,
+    7,
+    12,
+    (d) => {
+      const k = 1 + 0.32 * (bumps(d, 1.4, seed) - 0.5) + 0.14 * (bumps(d, 4, seed + 3) - 0.5);
+      return d[1] * k < -0.4 ? -0.4 / d[1] : k; // flat base
+    },
+    (d) => {
+      const base = [0.56, 0.52, 0.47].map((v) => v * (0.85 + 0.3 * bumps(d, 5, seed)));
+      if (d[1] < 0.25) return base;
+      const crust = bumps(d, 3, seed + 7);
+      const on = Math.min(1, (d[1] - 0.25) * 3);
+      const top = crust > 0.55 ? [0.78, 0.48, 0.58] : [0.45, 0.55, 0.3];
+      return base.map((v, i) => v + (top[i] - v) * on * 0.8);
+    }
+  );
+  return m.data();
+}
+
+// Each kind of reef object: its shapes, how tall it is (at scale 1), its size range and its colours
+// (capacities and ranges trimmed a little for a headset)
+const REEF_KINDS = [
+  { id: "table", shapes: [shapeTable, shapeTable], height: 0.65, size: [0.5, 1.4], cap: 260, range: 95,
+    colors: [[0.98, 0.72, 0.5], [0.95, 0.55, 0.48], [0.62, 0.72, 0.88], [1, 0.92, 0.76], [0.74, 0.74, 0.46]] },
+  { id: "boulder", shapes: [shapeBoulder, shapeBoulder], height: 0.75, size: [0.5, 1.5], cap: 320, range: 95,
+    colors: [[0.95, 0.78, 0.5], [0.66, 0.74, 0.4], [0.78, 0.52, 0.7], [1, 0.66, 0.4], [0.82, 0.84, 0.66]] },
+  { id: "staghorn", shapes: [(r) => shapeBranching(r, false), (r) => shapeBranching(r, false)], height: 1.0, size: [0.7, 1.4], cap: 300, range: 70,
+    colors: [[0.86, 0.6, 0.42], [0.78, 0.5, 0.8], [0.55, 0.68, 0.95], [1, 0.9, 0.7], [1, 0.62, 0.68]] },
+  { id: "fingers", shapes: [(r) => shapeBranching(r, true)], height: 0.65, size: [0.6, 1.2], cap: 260, range: 70,
+    colors: [[0.92, 0.7, 0.5], [0.75, 0.55, 0.88], [1, 0.82, 0.55], [0.66, 0.78, 0.5]] },
+  { id: "soft", shapes: [shapeSoft, shapeSoft], height: 0.95, size: [0.45, 1.05], cap: 260, range: 70,
+    colors: [[0.95, 0.3, 0.3], [0.97, 0.58, 0.64], [0.98, 0.52, 0.22], [0.5, 0.78, 0.25], [0.92, 0.78, 0.3]] },
+  { id: "fan", shapes: [shapeFan, shapeFan], height: 1.6, size: [0.7, 1.6], cap: 200, range: 80,
+    colors: [[0.92, 0.42, 0.22], [0.62, 0.32, 0.72], [0.86, 0.86, 0.82], [0.95, 0.78, 0.28]] },
+  { id: "rock", shapes: [shapeRock, shapeRock, shapeRock], height: 0.85, size: [0.5, 2.4], cap: 380, range: 95,
+    colors: [[1, 1, 1], [0.92, 0.9, 0.86], [0.85, 0.85, 0.82]] },
+];
+// Which corals grow at which depth (shallow: sturdy branching and table corals; deeper: soft corals and fans)
+const REEF_KIND = Object.fromEntries(REEF_KINDS.map((K) => [K.id, K]));
+const REEF_MIX_SHALLOW = { table: 0.13, boulder: 0.22, staghorn: 0.27, fingers: 0.18, soft: 0.12, fan: 0.08 };
+const REEF_MIX_DEEP = { table: 0.1, boulder: 0.22, staghorn: 0.14, fingers: 0.1, soft: 0.24, fan: 0.2 };
+
+// ===== Where the reef grows: a shelf of patches all round the island, and boulders along its rocky edge =====
+const NO_REEF = { coral: 0, rock: 0 };
+const reefNoise = (x, z) => noise2(x, z) * 0.6 + noise2(x * 2.1 + 5.3, z * 2.1 + 1.7) * 0.4;
+function reefWeights(x, z) {
+  const d = shoreDistJS(x, z); // metres out to sea
+  if (d < 1) return NO_REEF;
+  const shelf = smooth(10, 26, d) * (1 - smooth(120, 190, d));
+  const rockZone = smooth(1, 6, d) * (1 - smooth(30, 60, d));
+  if (shelf + rockZone < 0.01) return NO_REEF;
+  const patch = shelf > 0 ? shelf * smooth(0.4, 0.55, reefNoise(x * 0.012, z * 0.012)) : 0;
+  const coral = patch > 0 ? patch * smooth(0.34, 0.54, reefNoise(x * 0.07 + 3.1, z * 0.07 + 7.7)) : 0;
+  const rock = rockZone > 0 ? rockZone * smooth(0.4, 0.6, reefNoise(x * 0.05 + 11, z * 0.05 + 5)) : 0;
+  return { coral, rock };
+}
+
+const REEF_TILE = 20;
+const REEF_RADIUS = 100; // underwater things fade out before this
+const reefTiles = new Map();
+
+// Everything growing on one tile of sea floor: [{ kind, shape, x, y, z, yaw, tiltX, tiltZ, scale, color }]
+function reefTile(tx, tz) {
+  const key = tx + "," + tz;
+  let items = reefTiles.get(key);
+  if (items) return items;
+  items = [];
+  const rng = seededRandom(Math.imul(tx, 73856093) ^ Math.imul(tz, 19349663) ^ 0x5bd1e995);
+  const add = (kind, x, z, bed, depth, scaleMul) => {
+    if (depth < 1.0) return false; // not in the shallows (or on land)
+    if (Math.hypot(x - HARBOR.x, z - HARBOR.z) < 24) return false; // keep the harbour basin clear
+    const K = REEF_KIND[kind];
+    // Never let it reach the surface
+    let scale = (K.size[0] + (K.size[1] - K.size[0]) * rng() ** 1.5) * scaleMul;
+    scale = Math.min(scale, (depth - 0.7) / K.height);
+    if (scale < 0.3) return false;
+    items.push({
+      kind,
+      shape: Math.floor(rng() * K.shapes.length),
+      x,
+      y: bed - 0.06 * scale,
+      z,
+      yaw: rng() * Math.PI * 2,
+      tiltX: (rng() - 0.5) * 0.2,
+      tiltZ: (rng() - 0.5) * 0.2,
+      scale,
+      color: K.colors[Math.floor(rng() * K.colors.length)].map((c) => c * (0.85 + 0.25 * rng())),
+    });
+    return true;
+  };
+  const pickCoral = (depth, roll) => {
+    const mix = depth < 6 ? REEF_MIX_SHALLOW : REEF_MIX_DEEP;
+    let acc = 0;
+    for (const id in mix) {
+      acc += mix[id];
+      if (roll < acc) return id;
+    }
+    return "boulder";
+  };
+  for (let k = 0; k < 40; k++) {
+    const x = (tx + rng()) * REEF_TILE;
+    const z = (tz + rng()) * REEF_TILE;
+    const roll = rng();
+    const pickRoll = rng();
+    const bed = bedHeightJS(x, z);
+    const depth = -bed;
+    if (depth < 1.0 || depth > 26) continue;
+    const w = reefWeights(x, z);
+    if (roll < w.rock * 0.25 || roll > 0.997) {
+      add("rock", x, z, bed, depth, w.rock > 0.8 ? 1.6 : 1);
+    } else if (roll < w.rock * 0.25 + w.coral * 0.9 * (1 - 0.6 * smooth(7, 18, depth))) {
+      if (!add(pickCoral(depth, pickRoll), x, z, bed, depth, 1)) continue;
+      // Corals grow in crowded heads: a few smaller neighbours around this one
+      const friends = Math.floor(rng() * 7 * w.coral);
+      for (let f = 0; f < friends; f++) {
+        const a = rng() * Math.PI * 2;
+        const r = 0.7 + rng() * 1.6;
+        const fx = x + Math.cos(a) * r;
+        const fz = z + Math.sin(a) * r;
+        const fb = bedHeightJS(fx, fz);
+        add(pickCoral(-fb, rng()), fx, fz, fb, -fb, 0.6 + 0.3 * rng());
+      }
+    }
+  }
+  reefTiles.set(key, items);
+  return items;
+}
+
+// The tiles around (x, z), nearest first
+function reefTilesAround(x, z) {
+  const ctx = Math.floor(x / REEF_TILE);
+  const ctz = Math.floor(z / REEF_TILE);
+  const n = Math.ceil(REEF_RADIUS / REEF_TILE) + 1;
+  const tiles = [];
+  for (let i = -n; i <= n; i++)
+    for (let j = -n; j <= n; j++) {
+      const d = Math.hypot((ctx + i + 0.5) * REEF_TILE - x, (ctz + j + 0.5) * REEF_TILE - z);
+      if (d < REEF_RADIUS + REEF_TILE) tiles.push({ tx: ctx + i, tz: ctz + j, d });
+    }
+  return tiles.sort((a, b) => a.d - b.d);
+}
+
+// ===== Drawing: one instanced mesh per shape =====
+const reefMat = applyUnderwater(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0, side: THREE.DoubleSide }));
+const reefMeshes = {}; // kind → [InstancedMesh per shape]
+for (const K of REEF_KINDS) {
+  reefMeshes[K.id] = K.shapes.map((build, i) => {
+    const data = build(seededRandom(1000 + i * 77 + K.id.length * 13));
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(data.position, 3));
+    geo.setAttribute("normal", new THREE.BufferAttribute(data.normal, 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(data.color, 3));
+    const cap = Math.ceil(K.cap / K.shapes.length);
+    const mesh = new THREE.InstancedMesh(geo, reefMat, cap);
+    // Every mesh gets its colours from the start. They all share one material, and three.js builds its shader
+    // once: if some meshes had per-coral colours and others didn't, the others would draw black or untinted.
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3).fill(1), 3);
+    mesh.count = 0;
+    mesh.frustumCulled = false; // the copies are spread far beyond the shape's own bounds
+    mesh.renderOrder = 1.5; // after the water, like the other underwater things
+    scene.add(mesh);
+    return mesh;
+  });
+}
+
+const reefState = { tile: null, dirty: false };
+const _rm = new THREE.Matrix4();
+const _rq = new THREE.Quaternion();
+const _re = new THREE.Euler();
+const _rp = new THREE.Vector3();
+const _rs = new THREE.Vector3();
+const _rc = new THREE.Color();
+
+// Refill the reef around the camera when it moves onto another tile. New tiles are grown a couple per
+// frame, nearest first, so there's never a pause; the far ones (barely visible) fill in a moment later.
+function updateReef() {
+  const cx = camPos.x;
+  const cz = camPos.z;
+  const tile = Math.floor(cx / REEF_TILE) + "," + Math.floor(cz / REEF_TILE);
+  if (tile !== reefState.tile) {
+    reefState.tile = tile;
+    reefState.dirty = true;
+  }
+  if (!reefState.dirty) return;
+  const start = performance.now();
+  let missing = false;
+  for (const t of reefTilesAround(cx, cz)) {
+    if (reefTiles.has(t.tx + "," + t.tz)) continue;
+    if (performance.now() - start > 4) {
+      missing = true; // the rest next frame
+      break;
+    }
+    reefTile(t.tx, t.tz);
+  }
+  reefState.dirty = missing;
+  for (const id in reefMeshes) for (const mesh of reefMeshes[id]) mesh.count = 0;
+  const items = [];
+  for (const t of reefTilesAround(cx, cz)) {
+    const tileItems = reefTiles.get(t.tx + "," + t.tz);
+    if (tileItems) for (const it of tileItems) if (Math.hypot(it.x - cx, it.z - cz) < REEF_KIND[it.kind].range) items.push(it);
+  }
+  for (const it of items) {
+    const mesh = reefMeshes[it.kind][it.shape];
+    if (mesh.count >= mesh.instanceMatrix.count) continue;
+    _re.set(it.tiltX, it.yaw, it.tiltZ);
+    _rm.compose(_rp.set(it.x, it.y, it.z), _rq.setFromEuler(_re), _rs.set(it.scale, it.scale, it.scale));
+    mesh.setMatrixAt(mesh.count, _rm);
+    mesh.setColorAt(mesh.count, _rc.setRGB(it.color[0], it.color[1], it.color[2]));
+    mesh.count++;
+  }
+  for (const id in reefMeshes)
+    for (const mesh of reefMeshes[id]) {
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.instanceColor.needsUpdate = true;
+    }
+  // Forget tiles far behind, so the cache doesn't grow forever
+  if (reefTiles.size > 2500) {
+    for (const key of reefTiles.keys()) {
+      const [tx, tz] = key.split(",").map(Number);
+      if (Math.hypot((tx + 0.5) * REEF_TILE - cx, (tz + 0.5) * REEF_TILE - cz) > 600) reefTiles.delete(key);
+    }
+  }
+}
+
+// ===== Kelp forests: tall seaweed from the sea floor to just under the surface, all round the island =====
+// Each plant is a few long ribbons; the waves' to-and-fro surge sways them, more towards the top, in
+// rolling bands as each wave passes. One draw call; the swaying is done on the GPU.
+const kelp = (() => {
+  const K = { color: 0x9a8636, depth: [2.2, 14], count: 700 };
+  // One plant: three ribbons twisted around a common root, each 1 unit tall, wavy-edged
+  const pos = [];
+  const col = [];
+  const idx = [];
+  const SEG = 11;
+  for (let r = 0; r < 3; r++) {
+    const a0 = (r / 3) * Math.PI * 2 + 0.4;
+    const off = 0.12;
+    const v0 = pos.length / 3;
+    for (let s = 0; s <= SEG; s++) {
+      const t = s / SEG;
+      const a = a0 + t * 2.2; // the ribbon twists as it rises
+      const w = (0.09 + 0.16 * Math.sin(Math.PI * Math.min(1, t * 1.3))) * (1 + 0.25 * Math.sin(t * 31 + r)); // wavy edge
+      const cx = Math.cos(a0) * off * (1 + t * 2.5);
+      const cz = Math.sin(a0) * off * (1 + t * 2.5);
+      const ex = Math.cos(a + Math.PI / 2) * w;
+      const ez = Math.sin(a + Math.PI / 2) * w;
+      pos.push(cx - ex, t, cz - ez, cx + ex, t, cz + ez);
+      const shade = 0.45 + 0.55 * t; // darker down in the gloom
+      col.push(shade, shade, shade, shade, shade, shade);
+      if (s) idx.push(v0 + (s - 1) * 2, v0 + s * 2, v0 + (s - 1) * 2 + 1, v0 + (s - 1) * 2 + 1, v0 + s * 2, v0 + s * 2 + 1);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+
+  // Where they grow: forests in patches on the shelf, between the two depths, thinning out with depth
+  const spots = [];
+  const pickDepth = () => K.depth[0] + (K.depth[1] - K.depth[0]) * Math.pow(Math.random(), 1.6);
+  for (let k = 0, tries = 0; k < K.count && tries < K.count * 6; tries++) {
+    const a = rand(0, Math.PI * 2);
+    const want = pickDepth();
+    for (let r = ISL.r + 4; r < ISL.r + 280; r += 2) {
+      const x = ISL.x + Math.cos(a) * r;
+      const z = ISL.z + Math.sin(a) * r;
+      const y = bedHeightJS(x, z);
+      if (y > -want) continue;
+      if (jfbm(x * 0.03 + 4, z * 0.03, 7.7, 3) > 0.42 && Math.hypot(x - HARBOR.x, z - HARBOR.z) > 26) {
+        spots.push({ x, z, y, len: -y + rand(-0.6, 2.6) }); // up to the surface; the longest spread out along it
+        k++;
+      }
+      break;
+    }
+  }
+
+  const mat = applyUnderwater(new THREE.MeshStandardMaterial({ color: K.color, vertexColors: true, roughness: 0.6, side: THREE.DoubleSide }));
+  const underwater = mat.onBeforeCompile;
+  // The surge under each passing wave: the water moves to and fro along the wave's direction, so the
+  // kelp leans one way then the other, the top swinging furthest
+  const swayGLSL = WAVES.slice(0, 3)
+    .map((w) => `s += vec2(${w.dx.toFixed(4)}, ${w.dz.toFixed(4)}) * ${(w.a * 1.6).toFixed(4)} * cos(${w.k.toFixed(5)} * (${w.dx.toFixed(4)} * wp.x + ${w.dz.toFixed(4)} * wp.z - ${w.c.toFixed(4)} * uTime));`)
+    .join("\n            ");
+  mat.onBeforeCompile = (shader) => {
+    underwater(shader);
+    shader.uniforms.uWaveScale = waterUniforms.uWaveScale;
+    shader.vertexShader =
+      "uniform float uWaveScale;\nuniform float uTime;\n" +
+      shader.vertexShader.replace(
+        "#include <project_vertex>",
+        `vec4 wp = instanceMatrix * vec4(transformed, 1.0);
+          float h = position.y;
+          float len = length(instanceMatrix[1].xyz);
+          vec2 s = vec2(0.0);
+          ${swayGLSL}
+          // a slower, gentler drift of the whole forest, and each plant's own flutter
+          s += vec2(0.35, 0.2) * sin(uTime * 0.45 + wp.x * 0.05 + wp.z * 0.04);
+          s += vec2(sin(uTime * 1.7 + wp.x * 3.1), cos(uTime * 1.3 + wp.z * 2.7)) * 0.12;
+          wp.xz += s * uWaveScale * h * h * (0.6 + len * 0.18);
+          wp.y -= length(s) * uWaveScale * h * h * 0.15 * len; // leaning over, it dips a little
+          // what reaches the surface floats: it lies along the top, trailing the way the water pushes it
+          float over = max(wp.y + 0.12, 0.0);
+          wp.y -= over;
+          wp.xz += normalize(s + vec2(0.3, 0.25)) * over;
+          vec4 mvPosition = viewMatrix * wp;
+          gl_Position = projectionMatrix * mvPosition;`
+      );
+  };
+  mat.customProgramCacheKey = () => "kelp";
+
+  const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, spots.length));
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const sc = new THREE.Vector3();
+  const v = new THREE.Vector3();
+  const c = new THREE.Color();
+  spots.forEach((p, i) => {
+    const wide = rand(0.9, 1.6);
+    mesh.setMatrixAt(i, m.compose(v.set(p.x, p.y - 0.2, p.z), q.setFromEuler(e.set(0, rand(0, Math.PI * 2), 0)), sc.set(wide, p.len, wide)));
+    mesh.setColorAt(i, c.setHSL(rand(0.09, 0.2), rand(0.3, 0.55), rand(0.75, 0.95))); // olive, golden or greener plants
+  });
+  mesh.count = spots.length;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 1.5;
+  scene.add(mesh);
+  return { mesh, spots };
+})();
+
+// ===== Splashes (shared by the leaping fish) =====
+const SPLASH_COUNT = 400;
+const splashPos = new Float32Array(SPLASH_COUNT * 3).fill(-1000);
+const splashVel = new Float32Array(SPLASH_COUNT * 3);
+const splashLife = new Float32Array(SPLASH_COUNT);
+let splashNext = 0;
+const splashGeo = new THREE.BufferGeometry();
+splashGeo.setAttribute("position", new THREE.BufferAttribute(splashPos, 3));
+const splashMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.3, transparent: true, opacity: 0.85, depthWrite: false });
+const splashPoints = new THREE.Points(splashGeo, splashMat);
+splashPoints.frustumCulled = false;
+splashPoints.renderOrder = 2; // after the foam on the water
+scene.add(splashPoints);
+function splash(x, y, z, count, power) {
+  for (let n = 0; n < count; n++) {
+    const i = splashNext;
+    splashNext = (splashNext + 1) % SPLASH_COUNT;
+    const a = Math.random() * Math.PI * 2;
+    const r = Math.random() * power * 0.5;
+    splashPos[i * 3] = x + Math.cos(a) * 0.3;
+    splashPos[i * 3 + 1] = y;
+    splashPos[i * 3 + 2] = z + Math.sin(a) * 0.3;
+    splashVel[i * 3] = Math.cos(a) * r;
+    splashVel[i * 3 + 1] = rand(0.5, 1) * power;
+    splashVel[i * 3 + 2] = Math.sin(a) * r;
+    splashLife[i] = rand(0.5, 1.1);
+  }
+}
+function updateSplashes(dt) {
+  for (let i = 0; i < SPLASH_COUNT; i++) {
+    if (splashLife[i] <= 0) continue;
+    splashLife[i] -= dt;
+    splashVel[i * 3 + 1] -= 9.8 * dt;
+    splashPos[i * 3] += splashVel[i * 3] * dt;
+    splashPos[i * 3 + 1] += splashVel[i * 3 + 1] * dt;
+    splashPos[i * 3 + 2] += splashVel[i * 3 + 2] * dt;
+    if (splashLife[i] <= 0) splashPos[i * 3 + 1] = -1000;
+  }
+  splashGeo.attributes.position.needsUpdate = true;
+}
+
+// ===== Fish that leap out of the water and glide above the waves =====
+const fishMat = applyUnderwater(new THREE.MeshStandardMaterial({ color: 0xb8c4cc, metalness: 0.6, roughness: 0.3 }));
+function buildFish() {
+  const g = new THREE.Group();
+  g.rotation.order = "YXZ";
+  const bodyGeo = new THREE.SphereGeometry(1, 8, 6);
+  bodyGeo.scale(0.09, 0.14, 0.35);
+  g.add(new THREE.Mesh(bodyGeo, fishMat));
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.2, 0.12), fishMat);
+  tail.position.z = 0.38;
+  g.add(tail);
+  return shapeModel("fish", g);
+}
+const fishes = [];
+for (let i = 0; i < 8; i++) {
+  const mesh = buildFish();
+  mesh.visible = false;
+  scene.add(mesh);
+  fishes.push({ mesh, active: false, x: 0, z: 0, yaw: 0, t: 0, dur: 1, height: 1, speed: 5 });
+}
+let fishTimer = 1;
+const boil = { x: 0, z: 0, timer: 0 }; // a shoal feeding near the surface out at sea, where fish leap
+function moveBoil() {
+  for (let k = 0; k < 40; k++) {
+    const a = Math.PI / 2 + rand(-1.4, 1.4);
+    const r = ISL.r + rand(60, 200);
+    const x = ISL.x + Math.cos(a) * r, z = ISL.z + Math.sin(a) * r;
+    if (bedHeightJS(x, z) < -3) {
+      boil.x = x;
+      boil.z = z;
+      break;
+    }
+  }
+  boil.timer = rand(90, 180);
+}
+function updateLeapFish(dt, t) {
+  boil.timer -= dt;
+  if (boil.timer <= 0) moveBoil();
+  fishTimer -= dt;
+  if (fishTimer <= 0) {
+    fishTimer = rand(0.5, 2.2);
+    const f = fishes.find((fish) => !fish.active);
+    if (f) {
+      const a = Math.random() * Math.PI * 2;
+      const r = rand(0, 22);
+      f.active = true;
+      f.x = boil.x + Math.cos(a) * r;
+      f.z = boil.z + Math.sin(a) * r;
+      f.yaw = Math.random() * Math.PI * 2;
+      f.t = 0;
+      f.dur = rand(2.2, 3.4);
+      f.height = rand(0.6, 1.1);
+      f.speed = rand(7, 10);
+      f.mesh.visible = true;
+      splash(f.x, waveHeight(f.x, f.z, t), f.z, 8, 1.5);
+    }
+  }
+  for (const f of fishes) {
+    if (!f.active) continue;
+    f.t += dt;
+    const u = f.t / f.dur;
+    if (u >= 1) {
+      f.active = false;
+      f.mesh.visible = false;
+      splash(f.x, waveHeight(f.x, f.z, t), f.z, 8, 1.5);
+      continue;
+    }
+    f.x -= Math.sin(f.yaw) * f.speed * dt;
+    f.z -= Math.cos(f.yaw) * f.speed * dt;
+    // Up out of the water, a long glide just above the waves, then back in
+    const lift = Math.min(1, Math.sin(Math.PI * u) * 3);
+    const rel = -0.2 + (f.height + 0.2) * lift;
+    const vy = u < 0.12 ? 3 : u > 0.88 ? -3 : 0;
+    f.mesh.position.set(f.x, waveHeight(f.x, f.z, t) + rel, f.z);
+    f.mesh.rotation.set(Math.atan2(vy, f.speed), f.yaw, Math.sin(f.t * 30) * 0.2);
+  }
+}
+
+// ===== Reef fish schools (orange anthias swimming over the reef near the shore) =====
+const SCHOOL_COUNT = 3;
+const FISH_PER_SCHOOL = 90;
+function buildReefFishGeometries() {
+  // Body: a lathed, laterally flattened teardrop, nose toward -Z
+  const profile = [];
+  for (let i = 0; i <= 12; i++) {
+    const t = i / 12;
+    profile.push(new THREE.Vector2(Math.max(0.001, 0.11 * Math.sin(Math.PI * Math.pow(t, 0.8))), -0.2 + t * 0.4));
+  }
+  const body = new THREE.LatheGeometry(profile, 10);
+  body.rotateX(Math.PI / 2);
+  body.scale(0.45, 1, 1);
+  // Forked tail fin behind the body
+  const tail = new THREE.BufferGeometry();
+  tail.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0.17, 0, 0.12, 0.36, 0, 0.02, 0.29, 0, 0, 0.17, 0, -0.02, 0.29, 0, -0.12, 0.36], 3));
+  tail.computeVertexNormals();
+  return { body, tail };
+}
+const reefFishGeo = buildReefFishGeometries();
+const reefBodyMat = applyUnderwater(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45 }), 0.03);
+const reefTailMat = applyUnderwater(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, side: THREE.DoubleSide }), 0.09);
+const TOTAL_REEF_FISH = SCHOOL_COUNT * FISH_PER_SCHOOL;
+const fishPhases = new Float32Array(TOTAL_REEF_FISH).map(() => rand(0, Math.PI * 2));
+reefFishGeo.body.setAttribute("aPhase", new THREE.InstancedBufferAttribute(fishPhases, 1));
+reefFishGeo.tail.setAttribute("aPhase", new THREE.InstancedBufferAttribute(fishPhases, 1));
+const reefBodies = new THREE.InstancedMesh(reefFishGeo.body, reefBodyMat, TOTAL_REEF_FISH);
+const reefTails = new THREE.InstancedMesh(reefFishGeo.tail, reefTailMat, TOTAL_REEF_FISH);
+reefBodies.frustumCulled = false;
+reefTails.frustumCulled = false;
+reefBodies.renderOrder = reefTails.renderOrder = 1.5;
+{
+  const col = new THREE.Color();
+  for (let i = 0; i < TOTAL_REEF_FISH; i++) {
+    const r = Math.random();
+    if (r < 0.85) col.setHSL(rand(0.03, 0.08), 0.95, rand(0.5, 0.6)); // orange
+    else if (r < 0.93) col.setHSL(rand(0.12, 0.15), 0.95, 0.55); // yellow
+    else col.setHSL(rand(0.75, 0.82), 0.6, 0.55); // purple
+    reefBodies.setColorAt(i, col);
+    reefTails.setColorAt(i, col);
+  }
+}
+scene.add(reefBodies, reefTails);
+
+// Each school hangs around a spot out from wherever you are on the shore, kept over water at least a few
+// metres deep, and wanders slowly.
+const schools = [
+  { offT: -16, offR: 0 },
+  { offT: 18, offR: 14 },
+  { offT: 2, offR: 30 },
+].map((s, i) => ({
+  ...s,
+  x: 0,
+  z: -200,
+  y: -3,
+  heading: 0,
+  placed: false,
+  seed: i * 13.7,
+  vx: 0,
+  vz: 0,
+  // Every fish swims on its own: it keeps its own position, speed and heading, and follows its place in
+  // the school with its own reaction time, so a turn ripples through the school instead of all at once
+  fish: Array.from({ length: FISH_PER_SCHOOL }, () => ({
+    ox: rand(-1, 1) * 4,
+    oy: rand(-1, 1) * 0.8,
+    oz: rand(-1, 1) * 6,
+    phase: rand(0, Math.PI * 2),
+    scale: rand(0.8, 1.2),
+    x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0,
+    heading: 0,
+    slotHeading: 0, // the school's heading as this fish has noticed it
+    react: rand(0.6, 2.2), // how quickly it notices the school turning (rad/s)
+    turn: rand(2.2, 4), // how fast it can turn (rad/s)
+    maxSpeed: rand(4.6, 6.2), // always faster than the school (up to 4 m/s), so nobody gets left behind
+  })),
+}));
+const fishMatrix = new THREE.Matrix4();
+const fishQuat = new THREE.Quaternion();
+const fishEuler = new THREE.Euler(0, 0, 0, "YXZ");
+const fishPos = new THREE.Vector3();
+const fishScale = new THREE.Vector3();
+function updateReefFish(dt, t) {
+  const pdx = camPos.x - ISL.x, pdz = camPos.z - ISL.z;
+  const pl = Math.hypot(pdx, pdz) || 1;
+  const nearShore = Math.abs(pl - ISL.r) < 170;
+  reefBodies.visible = reefTails.visible = nearShore;
+  if (!nearShore) {
+    for (const s of schools) s.placed = false;
+    return;
+  }
+  const ux = pdx / pl, uz = pdz / pl; // out from the island, toward you
+  const tx = -uz, tz = ux;
+  let idx = 0;
+  schools.forEach((s, si) => {
+    // Target: out from your stretch of shore, wandering, pushed out to water at least 3 m deep
+    const R0 = Math.max(ISL.r + 26, pl) + s.offR + Math.sin(t * 0.1 + s.seed) * 10;
+    const lat = s.offT + Math.cos(t * 0.13 + s.seed) * 14;
+    let gx = ISL.x + ux * R0 + tx * lat;
+    let gz = ISL.z + uz * R0 + tz * lat;
+    for (let k = 0; k < 30 && bedHeightJS(gx, gz) > -3; k++) {
+      gx += ux * 4;
+      gz += uz * 4;
+    }
+    const fresh = !s.placed;
+    if (fresh) {
+      s.x = gx;
+      s.z = gz;
+      s.placed = true;
+    }
+    const dx = gx - s.x;
+    const dz = gz - s.z;
+    const dist = Math.hypot(dx, dz);
+    const speed = Math.min(dist * 0.5, 4);
+    s.vx = dist > 0.01 ? (dx / dist) * speed : 0;
+    s.vz = dist > 0.01 ? (dz / dist) * speed : 0;
+    s.x += s.vx * dt;
+    s.z += s.vz * dt;
+    // Face the way the school moves; drift around slowly when it's idle
+    const desired = speed > 0.3 ? Math.atan2(-dx, -dz) : s.heading + dt * 0.3;
+    s.heading += clamp(wrapAngle(desired - s.heading), -dt * 1.2, dt * 1.2);
+    const bed = bedHeightJS(s.x, s.z);
+    const targetY = clamp(bed + 2.5, -6, -1.2);
+    s.y += (targetY - s.y) * (1 - Math.exp(-dt));
+
+    const follow = 1 - Math.exp(-dt * 2.5);
+    s.fish.forEach((f, fi) => {
+      // The fish's place in the school, turned by the school's heading as this fish has noticed it
+      f.slotHeading += clamp(wrapAngle(s.heading - f.slotHeading), -f.react * dt, f.react * dt);
+      const ch = Math.cos(f.slotHeading);
+      const sh = Math.sin(f.slotHeading);
+      const lx = f.ox + Math.sin(t * 0.8 + f.phase) * 0.6;
+      const lz = f.oz + Math.cos(t * 0.6 + f.phase) * 0.8;
+      const px = s.x + lx * ch + lz * sh;
+      const py = s.y + f.oy + Math.sin(t * 1.3 + f.phase) * 0.2;
+      const pz = s.z - lx * sh + lz * ch;
+      if (fresh) Object.assign(f, { x: px, y: py, z: pz, vx: 0, vy: 0, vz: 0, heading: s.heading, slotHeading: s.heading });
+      // Swim toward that place, going with the school's flow, never faster than this fish can
+      let wx = (px - f.x) * 1.2 + s.vx;
+      let wy = (py - f.y) * 1.2;
+      let wz = (pz - f.z) * 1.2 + s.vz;
+      // Keep a little space from a neighbour
+      const n = s.fish[(fi + 1) % s.fish.length];
+      const sx = f.x - n.x, sy = f.y - n.y, sz = f.z - n.z;
+      const sd = Math.hypot(sx, sy, sz);
+      if (sd < 0.6 && sd > 1e-4) {
+        wx += (sx / sd) * (0.6 - sd) * 4;
+        wy += (sy / sd) * (0.6 - sd) * 4;
+        wz += (sz / sd) * (0.6 - sd) * 4;
+      }
+      const ws = Math.hypot(wx, wy, wz);
+      if (ws > f.maxSpeed) {
+        wx *= f.maxSpeed / ws;
+        wy *= f.maxSpeed / ws;
+        wz *= f.maxSpeed / ws;
+      }
+      f.vx += (wx - f.vx) * follow;
+      f.vy += (wy - f.vy) * follow;
+      f.vz += (wz - f.vz) * follow;
+      f.x += f.vx * dt;
+      f.y += f.vy * dt;
+      f.z += f.vz * dt;
+      // Turn to face where it's swimming, at its own pace; when idling, drift toward the school's heading
+      const hs = Math.hypot(f.vx, f.vz);
+      const want = hs > 0.25 ? Math.atan2(-f.vx, -f.vz) : f.slotHeading;
+      f.heading += clamp(wrapAngle(want - f.heading), -f.turn * dt, f.turn * dt);
+      const pitch = clamp(Math.atan2(f.vy, Math.max(hs, 0.3)), -0.5, 0.5);
+      fishPos.set(f.x, f.y, f.z);
+      fishEuler.set(pitch + Math.sin(t * 0.9 + f.phase) * 0.05, f.heading, 0);
+      fishQuat.setFromEuler(fishEuler);
+      fishScale.setScalar(f.scale);
+      fishMatrix.compose(fishPos, fishQuat, fishScale);
+      reefBodies.setMatrixAt(idx, fishMatrix);
+      reefTails.setMatrixAt(idx, fishMatrix);
+      idx++;
     });
   });
-  fishMesh.instanceMatrix.needsUpdate = true;
+  reefBodies.instanceMatrix.needsUpdate = true;
+  reefTails.instanceMatrix.needsUpdate = true;
+}
+
+// ===== The boat (Coastline's 8.6 m cabin cruiser), moored at a small dock =====
+const BOAT_LEN = { stern: 4.0, bow: -4.6 };
+const boatT = (z) => (z - BOAT_LEN.stern) / (BOAT_LEN.bow - BOAT_LEN.stern); // 0 at the stern, 1 at the bow
+const boatHalfBeam = (z) => {
+  const t = boatT(z);
+  return 1.45 * (t < 0.5 ? 1 - 0.06 * t : Math.pow(Math.max(Math.cos(((t - 0.5) / 0.5) * Math.PI * 0.5), 0), 0.75));
+};
+const boatSheer = (z) => 1.15 + 0.5 * Math.pow(boatT(z), 2.2); // the deck edge rises toward the bow
+const boatDeck = (z) => boatSheer(z) - 0.24; // the deck sits a little below the edge, inside a low bulwark
+
+// Teak planking for the deck, drawn once onto a small canvas
+function teakTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d");
+  if (!g || !g.fillRect) return null;
+  for (let i = 0; i < 16; i++) {
+    const tone = 150 + Math.floor(Math.random() * 30);
+    g.fillStyle = `rgb(${tone}, ${Math.floor(tone * 0.68)}, ${Math.floor(tone * 0.42)})`;
+    g.fillRect(i * 16, 0, 16, 256);
+    g.fillStyle = "rgba(40, 28, 18, 0.9)"; // caulked seam
+    g.fillRect(i * 16, 0, 2, 256);
+    const joint = Math.floor(Math.random() * 256);
+    g.fillRect(i * 16, joint, 16, 2); // butt joint
+    for (let k = 0; k < 6; k++) {
+      g.fillStyle = `rgba(90, 60, 35, ${0.1 + Math.random() * 0.15})`; // grain
+      g.fillRect(i * 16 + 3 + Math.random() * 11, 0, 1, 256);
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+function buildBoat() {
+  const root = new THREE.Group();
+  const tilt = new THREE.Group();
+  root.add(tilt);
+  const STATIONS = 26;
+  const zAt = (i) => BOAT_LEN.stern + ((BOAT_LEN.bow - BOAT_LEN.stern) * i) / (STATIONS - 1);
+
+  // --- Hull: cross-sections from the stern to the bow, lofted into one surface ---
+  const section = (z) => {
+    const t = boatT(z);
+    const w = Math.max(boatHalfBeam(z), 0.02);
+    const s = boatSheer(z);
+    const keel = lerp(-0.78, -0.05, smooth(0.62, 1, t)); // the forefoot sweeps up into the stem
+    const chine = lerp(-0.05, 0.35, smooth(0.5, 1, t));
+    // keel → chine → flared topsides → sheer (one side)
+    return [
+      [0, keel],
+      [0.5 * w, lerp(keel, chine, 0.6)],
+      [0.92 * w, chine],
+      [1.0 * w, chine + 0.28],
+      [1.04 * w, (chine + 0.28 + s) / 2],
+      [1.07 * w, s],
+    ];
+  };
+  const hullPos = [];
+  const hullCol = [];
+  const white = [0.95, 0.95, 0.93];
+  const navy = [0.1, 0.17, 0.3];
+  const bottom = [0.55, 0.16, 0.14];
+  const colorAt = (y) => (y < -0.06 ? bottom : y < 0.22 ? navy : white);
+  const ring = []; // per station: points from the port sheer, round the keel, to the starboard sheer
+  for (let i = 0; i < STATIONS; i++) {
+    const z = zAt(i);
+    const half = section(z);
+    const pts = [...half.slice().reverse().map(([x, y]) => [-x, y]), ...half.slice(1)];
+    ring.push(pts.map(([x, y]) => [x, y, z]));
+  }
+  const P = ring[0].length;
+  const idx = [];
+  ring.forEach((pts) => pts.forEach(([x, y, z]) => (hullPos.push(x, y, z), hullCol.push(...colorAt(y)))));
+  for (let i = 0; i < STATIONS - 1; i++)
+    for (let j = 0; j < P - 1; j++) {
+      const a = i * P + j;
+      idx.push(a, a + P, a + 1, a + 1, a + P, a + P + 1);
+    }
+  // Transom: close off the stern
+  const tc = hullPos.length / 3;
+  hullPos.push(0, (ring[0][0][1] + ring[0][P >> 1][1]) / 2, BOAT_LEN.stern);
+  hullCol.push(...white);
+  for (let j = 0; j < P - 1; j++) idx.push(tc, j + 1, j);
+  idx.push(tc, 0, P - 1); // the top of the transom, between the two gunwales
+  const hullGeo = new THREE.BufferGeometry();
+  hullGeo.setAttribute("position", new THREE.Float32BufferAttribute(hullPos, 3));
+  hullGeo.setAttribute("color", new THREE.Float32BufferAttribute(hullCol, 3));
+  hullGeo.setIndex(idx);
+  hullGeo.computeVertexNormals();
+  const hullMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.05, side: THREE.DoubleSide });
+  tilt.add(new THREE.Mesh(hullGeo, hullMat));
+
+  // --- Deck: teak, gently crowned, inside the bulwark ---
+  const deckPos = [];
+  const deckUv = [];
+  const deckIdx = [];
+  for (let i = 0; i < STATIONS; i++) {
+    const z = zAt(i);
+    const w = Math.max(boatHalfBeam(z) * 1.02 - 0.05, 0.01);
+    const y = boatDeck(z);
+    for (const [x, dy] of [[-w, 0], [0, 0.05], [w, 0]]) {
+      deckPos.push(x, y + dy, z);
+      deckUv.push(x / 2.2, z / 2.2);
+    }
+  }
+  for (let i = 0; i < STATIONS - 1; i++)
+    for (let j = 0; j < 2; j++) {
+      const a = i * 3 + j;
+      deckIdx.push(a, a + 1, a + 3, a + 1, a + 4, a + 3);
+    }
+  const deckGeo = new THREE.BufferGeometry();
+  deckGeo.setAttribute("position", new THREE.Float32BufferAttribute(deckPos, 3));
+  deckGeo.setAttribute("uv", new THREE.Float32BufferAttribute(deckUv, 2));
+  deckGeo.setIndex(deckIdx);
+  deckGeo.computeVertexNormals();
+  const teak = teakTexture();
+  const deckMat = new THREE.MeshStandardMaterial({ color: teak ? 0xffffff : 0xa47449, map: teak, roughness: 0.75, side: THREE.DoubleSide });
+  tilt.add(new THREE.Mesh(deckGeo, deckMat));
+
+  // --- Gunwale rub rails along the sheer ---
+  const steel = new THREE.MeshStandardMaterial({ color: 0xd8dde2, roughness: 0.18, metalness: 0.9 });
+  const rubMat = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.5 });
+  for (const side of [-1, 1]) {
+    const pts = [];
+    for (let i = 0; i < STATIONS; i++) {
+      const z = zAt(i);
+      pts.push(new THREE.Vector3(side * Math.max(boatHalfBeam(z), 0.02) * 1.07, boatSheer(z), z));
+    }
+    tilt.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 60, 0.06, 6, false), rubMat));
+  }
+
+  // --- Bow railings: top and middle rails, stanchions, and the pulpit at the bow ---
+  const railFrom = -0.4;
+  const railTo = BOAT_LEN.bow + 0.35;
+  const railPoint = (side, z, h) => {
+    const w = Math.max(boatHalfBeam(z) * 1.0 - 0.1, 0.05);
+    return new THREE.Vector3(side * w, boatSheer(z) + h, z);
+  };
+  for (const h of [0.68, 0.36]) {
+    const pts = [];
+    for (let k = 0; k <= 20; k++) pts.push(railPoint(-1, lerp(railFrom, railTo, k / 20), h));
+    for (let k = 20; k >= 0; k--) pts.push(railPoint(1, lerp(railFrom, railTo, k / 20), h));
+    tilt.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 90, 0.025, 6, false), steel));
+  }
+  for (let z = railFrom; z > railTo; z -= 0.9) {
+    for (const side of [-1, 1]) {
+      const top = railPoint(side, z, 0.68);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.68 + 0.22, 6), steel);
+      post.position.set(top.x, top.y - (0.68 + 0.22) / 2, top.z);
+      tilt.add(post);
+    }
+  }
+
+  // --- Foredeck fittings: anchor locker hatch, anchor on the bow roller, cleats ---
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.6, metalness: 0.4 });
+  const hatch = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.05, 0.6), new THREE.MeshStandardMaterial({ color: 0xe9e8e2, roughness: 0.4 }));
+  hatch.position.set(0, boatDeck(-3.3) + 0.07, -3.3);
+  tilt.add(hatch);
+  const roller = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.7), steel);
+  roller.position.set(0, boatSheer(-4.3) + 0.04, -4.35);
+  tilt.add(roller);
+  const anchor = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.32), darkMat);
+  anchor.position.set(0, boatSheer(-4.55) - 0.05, -4.62);
+  tilt.add(anchor);
+  for (const [x, z] of [[-0.75, -1.2], [0.75, -1.2], [-0.35, -3.95], [0.35, -3.95], [-1.25, 3.3], [1.25, 3.3]]) {
+    const cleat = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.26), steel);
+    cleat.position.set(x * Math.min(1, boatHalfBeam(z) / 1.45 + 0.1), boatDeck(z) + 0.06, z);
+    tilt.add(cleat);
+  }
+
+  // --- Cabin: raked windshield, side windows, a roof that overhangs a little ---
+  const cabinW = 2.1;
+  const deckY = boatDeck(0.4);
+  const prof = new THREE.Shape();
+  prof.moveTo(-0.55, 0);
+  prof.lineTo(-0.55, 0.55);
+  prof.lineTo(0.05, 1.42);
+  prof.lineTo(1.75, 1.42);
+  prof.lineTo(1.75, 0);
+  prof.closePath();
+  const cabinGeo = new THREE.ExtrudeGeometry(prof, { depth: cabinW, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 2 });
+  cabinGeo.rotateY(-Math.PI / 2);
+  cabinGeo.translate(cabinW / 2, deckY, 0);
+  const cabinMat = new THREE.MeshStandardMaterial({ color: 0xf0efe9, roughness: 0.35 });
+  tilt.add(new THREE.Mesh(cabinGeo, cabinMat));
+  const windowMat = new THREE.MeshStandardMaterial({ color: 0x18242e, roughness: 0.08, metalness: 0.3, emissive: 0xffc070, emissiveIntensity: 0 });
+  // Windshield: along the raked front face
+  const wsLen = Math.hypot(0.6, 0.87);
+  const windshield = new THREE.Mesh(new THREE.PlaneGeometry(cabinW - 0.3, wsLen * 0.72), windowMat);
+  windshield.position.set(0, deckY + 0.98, -0.25 - 0.06);
+  windshield.rotation.x = -Math.atan2(0.6, 0.87);
+  windshield.rotation.y = Math.PI;
+  tilt.add(windshield);
+  for (const side of [-1, 1]) {
+    const win = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 0.42), windowMat);
+    win.position.set(side * (cabinW / 2 + 0.056), deckY + 1.0, 0.85);
+    win.rotation.y = side * Math.PI * 0.5;
+    tilt.add(win);
+  }
+  const roofMat = new THREE.MeshStandardMaterial({ color: 0xe4e2db, roughness: 0.4 });
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(cabinW + 0.25, 0.08, 2.0), roofMat);
+  roof.position.set(0, deckY + 1.5, 0.82);
+  tilt.add(roof);
+  // Grab rails on the roof
+  for (const side of [-1, 1]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, 1.6), steel);
+    rail.position.set(side * 0.85, deckY + 1.6, 0.9);
+    tilt.add(rail);
+  }
+
+  // --- Radar arch over the cockpit, with a radome, antennas and the masthead light ---
+  const archZ = 1.9;
+  const archPts = [];
+  for (let k = 0; k <= 16; k++) {
+    const a = (k / 16) * Math.PI;
+    archPts.push(new THREE.Vector3(Math.cos(a) * 1.12, boatSheer(archZ) + Math.sin(a) * 1.9 * (0.85 + 0.15 * Math.sin(a)), archZ));
+  }
+  tilt.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(archPts), 40, 0.07, 8, false), cabinMat));
+  const archTop = boatSheer(archZ) + 1.9;
+  const radome = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.2, 18), new THREE.MeshStandardMaterial({ color: 0xf6f6f2, roughness: 0.3 }));
+  radome.position.set(0, archTop + 0.12, archZ);
+  tilt.add(radome);
+  for (const x of [-0.6, 0.6]) {
+    const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 1.6, 6), new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.4 }));
+    ant.position.set(x, archTop + 0.6, archZ);
+    tilt.add(ant);
+  }
+  const lampMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffe0a0, emissiveIntensity: 0 });
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 8), lampMat);
+  lamp.position.set(0, archTop + 0.45, archZ);
+  tilt.add(lamp);
+  const lampLight = new THREE.PointLight(0xffd9a0, 0, 30, 2);
+  lampLight.position.copy(lamp.position);
+  tilt.add(lampLight);
+
+  // --- Cockpit: bench seat, helm seat backs, swim platform and twin outboards ---
+  const cushion = new THREE.MeshStandardMaterial({ color: 0xd9d2c3, roughness: 0.8 });
+  const bench = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.42, 0.55), cushion);
+  bench.position.set(0, boatDeck(3.4) + 0.21, 3.45);
+  tilt.add(bench);
+  for (const x of [-0.5, 0.5]) {
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.85, 0.5), cushion);
+    seat.position.set(x, boatDeck(2.1) + 0.42, 2.2);
+    tilt.add(seat);
+  }
+  const platform = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.08, 0.55), deckMat);
+  platform.position.set(0, 0.32, BOAT_LEN.stern + 0.3);
+  tilt.add(platform);
+  const cowlMat = new THREE.MeshStandardMaterial({ color: 0x24272b, roughness: 0.3, metalness: 0.2 });
+  for (const x of [-0.55, 0.55]) {
+    const cowl = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.75, 0.6), cowlMat);
+    cowl.position.set(x, 0.95, BOAT_LEN.stern + 0.42);
+    tilt.add(cowl);
+    const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.0, 0.22), cowlMat);
+    shaft.position.set(x, 0.1, BOAT_LEN.stern + 0.45);
+    tilt.add(shaft);
+  }
+
+  // --- Life ring on the cabin side, fenders along the cockpit ---
+  const ring0 = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.07, 8, 20), new THREE.MeshStandardMaterial({ color: 0xff6a1f, roughness: 0.6 }));
+  ring0.position.set(cabinW / 2 + 0.09, deckY + 0.55, 1.3);
+  ring0.rotation.y = Math.PI / 2;
+  tilt.add(ring0);
+  for (const side of [-1, 1]) {
+    const fender = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.5, 10), new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.5 }));
+    fender.position.set(side * (boatHalfBeam(2.8) * 1.07 + 0.1), boatSheer(2.8) - 0.4, 2.8);
+    tilt.add(fender);
+  }
+
+  // Navigation lights (brightness is set at dusk, in updateBoatMoor)
+  const navLights = [];
+  function addNavLight(color, x, y, z) {
+    const mat = new THREE.MeshStandardMaterial({ color: 0x222222, emissive: color, emissiveIntensity: 0 });
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), mat);
+    bulb.position.set(x, y, z);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture, color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+    glow.scale.set(1.0, 1.0, 1);
+    glow.position.copy(bulb.position);
+    tilt.add(bulb, glow);
+    navLights.push({ bulb, mat, glow, color: new THREE.Color(color) });
+  }
+  addNavLight(0xff2a2a, -(cabinW / 2 + 0.07), deckY + 0.35, -0.3); // port (red)
+  addNavLight(0x2aff5a, cabinW / 2 + 0.07, deckY + 0.35, -0.3); // starboard (green)
+  addNavLight(0xffffff, 0, archTop + 0.05, archZ + 0.15); // stern (white)
+
+  // --- Water mask: an invisible lid at gunwale height. It only writes depth, after the deck is drawn and
+  // before the sea, so waves that reach above the deck never show up inside the boat ---
+  const maskPos = [];
+  const maskIdx = [];
+  for (let i = 0; i < STATIONS; i++) {
+    const z = zAt(i);
+    const w = Math.max(boatHalfBeam(z) - 0.04, 0);
+    const y = boatSheer(z) - 0.03;
+    maskPos.push(-w, y, z, w, y, z);
+    if (i) maskIdx.push(2 * i - 2, 2 * i - 1, 2 * i, 2 * i - 1, 2 * i + 1, 2 * i);
+  }
+  const maskGeo = new THREE.BufferGeometry();
+  maskGeo.setAttribute("position", new THREE.Float32BufferAttribute(maskPos, 3));
+  maskGeo.setIndex(maskIdx);
+  const waterMask = new THREE.Mesh(maskGeo, new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide }));
+  waterMask.renderOrder = 0.4; // after the boat and the land (0), before the far ocean (0.5) and the water (1)
+  tilt.add(waterMask);
+
+  return shapeModel("boat", { root, tilt, windowMat, lamp, lampMat, lampLight, navLights });
+}
+const boat = buildBoat();
+scene.add(boat.root);
+
+// ===== The dock: a small timber pier from the dunes out over the dredged basin, with the breakwater beyond =====
+const dock = (() => {
+  const g = new THREE.Group();
+  scene.add(g);
+  const { nx, nz } = DOCK;
+  const tx = -nz, tz = nx; // across the dock
+  const yawD = Math.atan2(nx, nz);
+  const at = (s, l) => new THREE.Vector3(ISL.x + nx * s + tx * l, 0, ISL.z + nz * s + tz * l);
+  const plankTex = pixTex(128, 128, (u, v) => {
+    const board = Math.floor(v * 6);
+    const seam = Math.abs((v * 6) % 1) < 0.05 ? 0.45 : 1;
+    const grain = jnoise(u * 3 + board * 7, v * 40, 2);
+    const k = (0.7 + 0.5 * grain) * seam * (0.85 + 0.25 * jhash(board, 1, 2));
+    return [0.46 * k, 0.4 * k, 0.34 * k];
+  });
+  plankTex.repeat.set(1, 28);
+  const length = DOCK.r1 - DOCK.r0;
+  const wood = new THREE.MeshStandardMaterial({ map: plankTex, roughness: 0.9 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x4b3b2d, roughness: 0.95 });
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.1, length), wood);
+  const mid = at((DOCK.r0 + DOCK.r1) / 2, 0);
+  deck.position.set(mid.x, DOCK.y - 0.05, mid.z);
+  deck.rotation.y = yawD;
+  g.add(deck);
+  // Piles down to the sea floor, every few metres on both sides, a few standing proud as mooring posts
+  const pileMat = new THREE.MeshStandardMaterial({ map: barkTex, roughness: 0.95 });
+  for (let s = DOCK.r0 + 1; s <= DOCK.r1; s += 3.6)
+    for (const l of [-1.0, 1.0]) {
+      const p = at(s, l);
+      const bed = bedHeightJS(p.x, p.z);
+      const top = DOCK.y + (l > 0 && (Math.round((s - DOCK.r0) / 3.6) % 2 === 0) ? 0.55 : 0.05);
+      const h = top - bed + 0.4;
+      const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, h, 8), pileMat);
+      pile.position.set(p.x, bed - 0.4 + h / 2, p.z);
+      g.add(pile);
+      // beam across under the deck
+      if (l < 0) {
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.14, 0.18), dark);
+        beam.position.set(p.x + tx, DOCK.y - 0.17, p.z + tz);
+        beam.rotation.y = yawD;
+        g.add(beam);
+      }
+    }
+  // Rope rail along the shore side of the dock, and a ladder at the end
+  const rope = new THREE.MeshStandardMaterial({ color: 0xcdb98a, roughness: 0.9 });
+  for (let s = DOCK.r0 + 2; s < DOCK.r1 - 4; s += 3.6) {
+    const p = at(s, -1.05);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.9, 6), dark);
+    post.position.set(p.x, DOCK.y + 0.45, p.z);
+    g.add(post);
+    const q = at(s + 3.6, -1.05);
+    const len = Math.hypot(q.x - p.x, q.z - p.z);
+    const r = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, len, 5), rope);
+    r.position.set((p.x + q.x) / 2, DOCK.y + 0.8 - 0.05, (p.z + q.z) / 2);
+    r.rotation.set(Math.PI / 2, 0, 0);
+    r.rotation.order = "YXZ";
+    r.rotation.y = yawD;
+    g.add(r);
+  }
+  // Lantern posts for the evening
+  const bulbMat = new THREE.MeshStandardMaterial({ color: 0xffe9b0, emissive: 0xffb050, emissiveIntensity: 0 });
+  const lamps = [];
+  for (const s of [DOCK.r0 + 9, DOCK.r0 + 22, DOCK.r1 - 1]) {
+    const p = at(s, -1.05);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 2.1, 6), dark);
+    post.position.set(p.x, DOCK.y + 1.0, p.z);
+    g.add(post);
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 8), bulbMat);
+    bulb.position.set(p.x, DOCK.y + 2.15, p.z);
+    g.add(bulb);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture, color: 0xffa860, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    glow.position.copy(bulb.position);
+    g.add(glow);
+    lamps.push({ bulb, glow });
+  }
+  const dockLight = new THREE.PointLight(0xffb060, 0, 16, 2);
+  dockLight.position.copy(at(DOCK.r1 - 6, -1.05)).setY(DOCK.y + 2.1);
+  g.add(dockLight);
+  // The breakwater: a mound of big rocks on the seaward side of the basin, tall enough to stand above the swell
+  const rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93 });
+  for (let i = 0; i < 30; i++) {
+    const ang = DOCK_ANG + (i - 14.5) * 0.0125;
+    const rr = ISL.r + 54 + rand(-2, 2);
+    const x = ISL.x + Math.cos(ang) * rr, z = ISL.z + Math.sin(ang) * rr;
+    const s = rand(2.2, 3.1);
+    const rock = new THREE.Mesh(makeRock(3, Math.random() * 80, 0.5), rockMat);
+    rock.scale.set(s * 1.1, s, s * 1.1);
+    rock.position.set(x, bedHeightJS(x, z) + s * 0.75, z);
+    rock.rotation.y = rand(0, 6.28);
+    g.add(rock);
+  }
+  return { g, lamps, bulbMat, dockLight };
+})();
+
+// The boat sits alongside the dock, bow out to sea, riding the (sheltered) swell
+const moor = (() => {
+  const s = DOCK.r0 + (DOCK.r1 - DOCK.r0) * 0.72;
+  const l = 2.75; // far enough from the dock for the fenders
+  const x = ISL.x + DOCK.nx * s - DOCK.nz * l, z = ISL.z + DOCK.nz * s + DOCK.nx * l;
+  return { x, z, yaw: Math.atan2(-DOCK.nx, -DOCK.nz), y: 0, pitch: 0, roll: 0, wx: x, wz: z, wyaw: 0 };
+})();
+// (the cleat ropes)
+{
+  const ropeMat = new THREE.MeshStandardMaterial({ color: 0xcdb98a, roughness: 0.9 });
+  moor.ropes = [-2.4, 2.8].map((lz) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1, 5), ropeMat);
+    scene.add(m);
+    return { m, lz };
+  });
+}
+const _mb = new THREE.Vector3(), _md = new THREE.Vector3();
+function updateBoatMoor(dt, t, lampsOn) {
+  const sw = Math.sin(t * 0.37) * 0.1;
+  const yaw = moor.yaw + Math.sin(t * 0.23) * 0.012;
+  const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
+  const bx = moor.x + fx * sw, bz = moor.z + fz * sw;
+  const hBow = waveHeight(bx + fx * 3.5, bz + fz * 3.5, t);
+  const hStern = waveHeight(bx - fx * 3.5, bz - fz * 3.5, t);
+  const hRight = waveHeight(bx + rx * 1.4, bz + rz * 1.4, t);
+  const hLeft = waveHeight(bx - rx * 1.4, bz - rz * 1.4, t);
+  const k = 1 - Math.exp(-dt * 4);
+  moor.y += ((hBow + hStern + hRight + hLeft) / 4 - moor.y) * k;
+  moor.pitch += (Math.atan2(hBow - hStern, 7) - moor.pitch) * k;
+  moor.roll += (Math.atan2(hRight - hLeft, 2.8) * 0.7 - moor.roll) * k;
+  moor.wx = bx;
+  moor.wz = bz;
+  moor.wyaw = yaw;
+  boat.root.position.set(bx, moor.y, bz);
+  boat.root.rotation.y = yaw;
+  boat.tilt.rotation.set(moor.pitch, 0, moor.roll);
+  // lights come on at dusk and in dark weather
+  boat.lampLight.intensity = 1.5 * lampsOn;
+  boat.lampMat.emissiveIntensity = 2 * lampsOn;
+  boat.windowMat.emissiveIntensity = 0.8 * lampsOn;
+  for (const nav of boat.navLights) {
+    nav.mat.emissiveIntensity = 2 * lampsOn;
+    nav.glow.material.opacity = lampsOn;
+  }
+  dock.bulbMat.emissiveIntensity = 2.2 * lampsOn;
+  dock.dockLight.intensity = 1.4 * lampsOn;
+  for (const l of dock.lamps) l.glow.material.opacity = lampsOn * 0.9, l.glow.scale.setScalar(0.5 + 1.6 * lampsOn);
+  // ropes from the boat's cleats to the dock's piles
+  boat.root.updateMatrixWorld(true);
+  for (const r of moor.ropes) {
+    _mb.set(-boatHalfBeam(r.lz) * 0.85, boatDeck(r.lz) + 0.06, r.lz);
+    boat.tilt.localToWorld(_mb);
+    const s = DOCK.r0 + (DOCK.r1 - DOCK.r0) * 0.72 + (r.lz < 0 ? -r.lz * 0.5 : -r.lz * 0.9);
+    _md.set(ISL.x + DOCK.nx * s + DOCK.nz * 1.0, DOCK.y + 0.1, ISL.z + DOCK.nz * s - DOCK.nx * 1.0);
+    const len = _mb.distanceTo(_md);
+    r.m.position.copy(_mb).add(_md).multiplyScalar(0.5);
+    r.m.scale.set(1, len, 1);
+    r.m.quaternion.setFromUnitVectors(_pa.set(0, 1, 0), _pn.copy(_md).sub(_mb).normalize());
+  }
+}
+// Where you can stand: the dock, and the boat's open deck (the cabin is solid)
+function dockHeightAt(x, z) {
+  const dx = x - ISL.x, dz = z - ISL.z;
+  const s = dx * DOCK.nx + dz * DOCK.nz;
+  const l = -dx * DOCK.nz + dz * DOCK.nx;
+  return s > DOCK.r0 && s < DOCK.r1 && l > -1.1 && l < 1.45 ? DOCK.y : null; // (the strip beside it is the gap to the boat)
+}
+function boatDeckAt(x, z) {
+  const dx = x - moor.wx, dz = z - moor.wz;
+  const c = Math.cos(moor.wyaw), sn = Math.sin(moor.wyaw);
+  const lx = dx * c - dz * sn, lz = dx * sn + dz * c;
+  if (lz < BOAT_LEN.bow + 0.5 || lz > BOAT_LEN.stern - 0.3) return null;
+  if (Math.abs(lx) > boatHalfBeam(lz) - 0.2) return null;
+  if (lz > -0.75 && lz < 1.95 && Math.abs(lx) < 1.2) return "cabin";
+  return moor.y + boatDeck(lz) + 0.05;
 }
 
 // ===== Chinese festival lanterns =====
@@ -3015,6 +4125,9 @@ const camFwd = new THREE.Vector3();
 const tmpV = new THREE.Vector3();
 let vigWant = 0;
 function blocked(x, z) {
+  const onBoat = boatDeckAt(x, z);
+  if (onBoat === "cabin") return true;
+  if (onBoat !== null || dockHeightAt(x, z) !== null) return false; // the dock and the boat's deck are solid ground
   if (bedHeightJS(x, z) < -0.85) return true; // knee-deep is as far as you can wade
   for (const c of colliders) if (Math.hypot(x - c.x, z - c.z) < c.r + 0.3) return true;
   return false;
@@ -3038,7 +4151,12 @@ function updatePlayer(dt) {
     else if (!blocked(player.x + dx, player.z)) player.x += dx;
     else if (!blocked(player.x, player.z + dz)) player.z += dz;
   }
-  player.y += (Math.max(groundY(player.x, player.z), -0.85) - player.y) * (1 - Math.exp(-dt * 14));
+  let standY = Math.max(groundY(player.x, player.z), -0.85);
+  const dh = dockHeightAt(player.x, player.z);
+  if (dh !== null) standY = Math.max(standY, dh);
+  const bh = boatDeckAt(player.x, player.z);
+  if (typeof bh === "number") standY = Math.max(standY, bh);
+  player.y += (standY - player.y) * (1 - Math.exp(-dt * 14));
   rig.position.set(player.x, player.y, player.z);
   rig.rotation.y = yaw;
   if (!renderer.xr.isPresenting) camera.rotation.set(pitch, 0, 0, "YXZ");
@@ -3398,7 +4516,8 @@ function updateStick() {
 
 // ===== Frame loop: a full day and night in eight minutes =====
 const DAY_SECONDS = 480;
-const game = { hours: 17.2 };
+const game = { hours: rand(0, 24) }; // a random time of day each visit
+let prevHours = game.hours;
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, Math.max(0.001, (now - last) / 1000));
@@ -3406,6 +4525,11 @@ function frame(now) {
   shared.uTime.value += dt;
   const t = shared.uTime.value;
   game.hours = (game.hours + (dt * 24) / DAY_SECONDS) % 24;
+  if (prevHours < 5 && game.hours >= 5) {
+    weather.fogDay = Math.random() < 0.3; // each new morning may bring a fog day
+    weather.fogTimer = 0;
+  }
+  prevHours = game.hours;
 
   updateWeather(dt);
   windU.uWind.value.set(Math.cos(weather.windAngle), Math.sin(weather.windAngle));
@@ -3417,7 +4541,11 @@ function frame(now) {
 
   updateSky(dt, t, env.lampsOn);
   updateLotus(dt, t, env.lampsOn);
-  updateReef(dt, t);
+  updateReef();
+  updateReefFish(dt, t);
+  updateLeapFish(dt, t);
+  updateSplashes(dt);
+  updateBoatMoor(dt, t, env.lampsOn);
   garland.update(t, env.lampsOn);
   fire.update(dt, t);
   updateLamps(env.lampsOn);
@@ -3480,7 +4608,7 @@ addEventListener("resize", () => {
 
 renderer.setAnimationLoop(frame);
 // handy for testing in a desktop browser
-window.__lt = { camera, water, lotuses, seaweedMesh, fishMesh, coralMesh, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
+window.__lt = { camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
 })();
 </script>
 </body>
