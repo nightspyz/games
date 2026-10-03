@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Vrsurf Free Surf</title>
+<style>
+:root{color-scheme:dark;--ink:#f2f7f6;--go:#ffcf5a;--go-ink:#2a1d00;--card:rgba(6,24,34,.62)}
+html,body{margin:0;height:100%;background:#06202c;color:var(--ink);font:15px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden}
+canvas{display:block}
+#hud{position:fixed;top:12px;left:16px;right:16px;display:flex;justify-content:space-between;gap:8px;pointer-events:none;font-weight:600;text-shadow:0 1px 4px #0008}
+#hud span{background:var(--card);padding:6px 12px;border-radius:999px}
+#hint{position:fixed;bottom:14px;left:16px;right:16px;text-align:center;pointer-events:none;font-size:13px}
+#hint span{background:var(--card);padding:6px 12px;border-radius:12px;display:inline-block}
+#menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(#0b3a4d99,#031018cc)}
+#menu .box{background:var(--card);backdrop-filter:blur(8px);border:1px solid #ffffff22;border-radius:18px;padding:26px 30px;max-width:460px;margin:16px;text-align:left}
+h1{margin:0 0 6px;font-size:40px;letter-spacing:.02em;text-align:center}
+p{margin:8px 0;line-height:1.45;opacity:.9}
+ul{margin:8px 0;padding-left:20px;line-height:1.5;font-size:14px}
+.row{text-align:center}
+button,a.btn{display:inline-block;font:inherit;font-weight:700;border:0;border-radius:999px;padding:12px 26px;margin:8px 6px 0;background:var(--go);color:var(--go-ink);cursor:pointer;text-decoration:none}
+button.alt,a.btn.alt{background:#ffffff22;color:var(--ink)}
+button:disabled{opacity:.4;cursor:default}
+</style>
+</head>
+<body>
+<div id="hud" hidden><span id="stance"></span><span id="info"></span></div>
+<div id="hint" hidden><span id="hinttext"></span></div>
+<div id="menu"><div class="box">
+  <h1>Free Surf</h1>
+  <p>Pick up your board on the beach, carry it into the water, step on, paddle out, then stand up and let the waves carry you to shore.</p>
+  <ul>
+    <li><b>VR:</b> grip / trigger near the board to pick it up, let go to drop it. Step onto it while it floats.</li>
+    <li><b>Lie down</b> on the floor to paddle: pull your arms back in strokes. One arm stronger = turn.</li>
+    <li><b>Kneel</b> = sit up (slow), <b>stand</b> = surf. Waves shove you shoreward while you stand. Lean or use the thumbstick to steer.</li>
+    <li>Face button (A/B/X/Y) bails off the board. Thumbstick walks on the beach.</li>
+    <li><b>Desktop:</b> W/S walk &amp; A/D turn, E grab/drop, Space lie/stand, W paddle, Q bail.</li>
+  </ul>
+  <div class="row"><button id="play">Play (desktop)</button><button id="vr" class="alt" disabled>Enter VR</button><a class="btn alt" href="index.html">Arcade mode</a></div>
+  <p id="msg" style="font-size:13px;opacity:.7;text-align:center"></p>
+</div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp=(a,b,k)=>a+(b-a)*k;
+const sstep=(a,b,v)=>{const k=clamp((v-a)/(b-a),0,1);return k*k*(3-2*k);};
+
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.xr.enabled=true;
+document.body.appendChild(renderer.domElement);
+
+const scene=new THREE.Scene();
+const SKY=0x7fc8e8;
+scene.background=new THREE.Color(SKY);
+scene.fog=new THREE.Fog(SKY,35,105);
+const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.05,500);
+const rig=new THREE.Group(); rig.add(camera); scene.add(rig);
+
+scene.add(new THREE.HemisphereLight(0xcfeeff,0x6a7a70,.6));
+const sun=new THREE.DirectionalLight(0xfff2d0,.55); sun.position.set(-30,40,-20); scene.add(sun);
+const sunDisc=new THREE.Mesh(new THREE.CircleGeometry(14,32),new THREE.MeshBasicMaterial({color:0xfff0b0,fog:false}));
+sunDisc.position.set(-60,45,-200); scene.add(sunDisc);
+
+// ---------- world model ----------
+// Shore is the line z=0. Sea is z<0, beach is z>0. Waves travel toward +z (the shore).
+const G=9.8, WL=30, K=2*Math.PI/WL, CWAVE=Math.sqrt(G/K), OM=K*CWAVE;
+function groundH(x,z){
+  const base=z<0?-Math.min(9,-z*.06):Math.min(6,z*.05);
+  return base+(z>0?Math.sin(x*.08)*.3*Math.min(1,z/20):0);
+}
+function waveH(x,z,t){
+  const depth=-groundH(x,z); if(depth<=0) return 0;
+  const amp=sstep(0,.8,depth)*clamp((depth+.5)/4,.15,1);
+  const th=K*z-OM*t+Math.sin(x*.05)*.8;
+  const mod=.8+.2*Math.sin(x*.04+t*.2);
+  let h=amp*mod*(1.1*Math.sin(th)+.22*Math.sin(2*th+1.2));
+  h+=.2*sstep(0,2,depth)*Math.sin(z*.31+x*.17-t*1.7);
+  return h;
+}
+
+// ground (sand + sea floor)
+const ggeo=new THREE.PlaneGeometry(600,500,150,125); ggeo.rotateX(-Math.PI/2); ggeo.translate(0,0,-100);
+{
+  const p=ggeo.attributes.position, col=new Float32Array(p.count*3);
+  for(let i=0;i<p.count;i++){
+    const h=groundH(p.getX(i),p.getZ(i)); p.setY(i,h);
+    let r,g,b;
+    if(h<0){const k=clamp(-h/5,0,1); r=lerp(.78,.2,k); g=lerp(.7,.42,k); b=lerp(.5,.52,k);}
+    else{const k=sstep(0,.5,h); r=lerp(.68,.94,k); g=lerp(.6,.86,k); b=lerp(.45,.66,k);}
+    col.set([r,g,b],i*3);
+  }
+  ggeo.setAttribute('color',new THREE.BufferAttribute(col,3)); ggeo.computeVertexNormals();
+}
+scene.add(new THREE.Mesh(ggeo,new THREE.MeshStandardMaterial({vertexColors:true,roughness:1})));
+
+// palms
+{
+  const trunkM=new THREE.MeshStandardMaterial({color:0x7a5a3a}), leafM=new THREE.MeshStandardMaterial({color:0x2f8f4a,flatShading:true});
+  for(let i=0;i<14;i++){
+    const x=(i-7)*9+Math.sin(i*7.1)*3, z=22+((i*37)%25), y=groundH(x,z);
+    const h=5+((i*13)%4), tr=new THREE.Mesh(new THREE.CylinderGeometry(.18,.28,h,6),trunkM); tr.position.set(x,y+h/2,z); scene.add(tr);
+    for(let k=0;k<6;k++){const a=k/6*Math.PI*2, lf=new THREE.Mesh(new THREE.ConeGeometry(.5,3.2,4),leafM);
+      lf.position.set(x+Math.cos(a)*1.3,y+h-.2,z+Math.sin(a)*1.3); lf.rotation.set(Math.sin(a)*1.2,0,-Math.cos(a)*1.2); scene.add(lf);}
+  }
+}
+
+// water surface follows the player, snapped to its grid so it doesn't swim
+const WN=110, WCELL=2;
+const wgeo=new THREE.PlaneGeometry(WN*WCELL,WN*WCELL,WN,WN); wgeo.rotateX(-Math.PI/2);
+const wpos=wgeo.attributes.position, wcol=new Float32Array(wpos.count*3);
+wgeo.setAttribute('color',new THREE.BufferAttribute(wcol,3));
+const water=new THREE.Mesh(wgeo,new THREE.MeshStandardMaterial({color:0xffffff,vertexColors:true,roughness:.3,metalness:.1,flatShading:true,transparent:true,opacity:.9}));
+scene.add(water);
+function updateWater(cx,cz,t){
+  const sx=Math.round(cx/WCELL)*WCELL, sz=Math.round(cz/WCELL)*WCELL; water.position.set(sx,0,sz);
+  const a=wpos.array;
+  for(let i=0;i<wpos.count;i++){
+    const x=a[i*3]+sx, z=a[i*3+2]+sz, h=waveH(x,z,t); a[i*3+1]=h;
+    const depth=-groundH(x,z), shallow=1-sstep(.2,2.5,depth), foam=sstep(.6,1.15,h)*.8+(1-sstep(0,.5,depth))*.6;
+    wcol[i*3]  =lerp(lerp(.04,.1,shallow),.8,foam);
+    wcol[i*3+1]=lerp(lerp(.32,.5,shallow),.88,foam);
+    wcol[i*3+2]=lerp(lerp(.5,.55,shallow),.92,foam);
+  }
+  wpos.needsUpdate=true; wgeo.attributes.color.needsUpdate=true; wgeo.computeVertexNormals();
+}
+
+// ---------- the board ----------
+const DECK=.09;
+const boardG=new THREE.Group();
+const boardMat=new THREE.MeshStandardMaterial({color:0xff5a4a,roughness:.45,emissive:0x000000});
+const hull=new THREE.Mesh(new THREE.SphereGeometry(1,28,14),boardMat); hull.scale.set(.30,.045,1.15); hull.position.y=.045;
+const stripe=new THREE.Mesh(new THREE.BoxGeometry(.07,.008,1.3),new THREE.MeshStandardMaterial({color:0xffffff})); stripe.position.y=.087;
+const fin=new THREE.Mesh(new THREE.BoxGeometry(.02,.16,.2),new THREE.MeshStandardMaterial({color:0x222c44})); fin.position.set(0,-.04,.8);
+boardG.add(hull,stripe,fin); scene.add(boardG);
+
+const board={x:0,z:0,y:0,sy:0,vx:0,vz:0,heading:0,held:-1,fall:0};
+
+// desktop stand-in rider
+const rider=new THREE.Group();
+const rBody=new THREE.Mesh(new THREE.CylinderGeometry(.16,.2,.9,8),new THREE.MeshStandardMaterial({color:0x222c44})); rBody.position.y=.55;
+const rHead=new THREE.Mesh(new THREE.SphereGeometry(.15,12,12),new THREE.MeshStandardMaterial({color:0xe8b08a})); rHead.position.y=1.2;
+rider.add(rBody,rHead); scene.add(rider); rider.visible=false;
+
+// ---------- HUD sprite for VR ----------
+const hc=document.createElement('canvas'); hc.width=512; hc.height=128; const hx=hc.getContext('2d');
+const htex=new THREE.CanvasTexture(hc);
+const hsprite=new THREE.Sprite(new THREE.SpriteMaterial({map:htex,transparent:true,depthTest:false,fog:false}));
+hsprite.scale.set(.9,.225,1); hsprite.position.set(0,-.38,-1.1); hsprite.renderOrder=10; camera.add(hsprite); hsprite.visible=false;
+function drawHud(l1,l2){
+  hx.clearRect(0,0,512,128); hx.fillStyle='rgba(6,24,34,.7)'; hx.fillRect(0,0,512,128);
+  hx.fillStyle='#f2f7f6'; hx.font='bold 40px sans-serif'; hx.textAlign='center'; hx.fillText(l1,256,52);
+  hx.font='30px sans-serif'; hx.fillStyle='#ffcf5a'; hx.fillText(l2,256,102); htex.needsUpdate=true;
+}
+
+// ---------- state ----------
+let t=0, started=false, mode='walk', stance='stand', simStand=false, H=1.6;
+let deskGrab=false, msg='', msgT=0, needExit=false, mountCD=0, hudT=0, bestShore=0;
+const P={x:0,z:0,yaw:0};                   // walking pose (rig origin in VR, body in desktop)
+const room={cx:0,cz:0,phi:0};              // room-space board centre + facing while riding in VR
+const keys={}, keyEdge={};
+addEventListener('keydown',e=>{ if(!keys[e.code]) keyEdge[e.code]=true; keys[e.code]=true; if(e.code==='Space') e.preventDefault(); });
+addEventListener('keyup',e=>{keys[e.code]=false;});
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+
+const ctrls=[0,1].map(i=>{const c=renderer.xr.getController(i); rig.add(c);
+  c.addEventListener('connected',e=>{c.userData.src=e.data;}); c.addEventListener('disconnected',()=>{c.userData.src=null;}); return c;});
+const hand=[0,1].map(()=>({ok:false,grip:false,prevGrip:false,btn:false,prevBtn:false,ax:0,ay:0,pos:new THREE.Vector3(),quat:new THREE.Quaternion(),p:0,pPrev:0,stroke:0}));
+const V=new THREE.Vector3(), V2=new THREE.Vector3(), Q=new THREE.Quaternion();
+const dz=v=>Math.abs(v)<.15?0:v;
+
+function readXR(){
+  hand.forEach(h=>h.ok=false);
+  ctrls.forEach((c,i)=>{
+    const src=c.userData.src; if(!src||!src.gamepad) return;
+    const h=hand[src.handedness==='right'?1:src.handedness==='left'?0:i], g=src.gamepad, b=g.buttons;
+    h.ok=true; h.ctrl=c;
+    h.grip=!!((b[0]&&b[0].pressed)||(b[1]&&b[1].pressed));
+    h.btn=!!((b[4]&&b[4].pressed)||(b[5]&&b[5].pressed));
+    const a=g.axes; h.ax=dz(a.length>=4?a[2]:a[0]||0); h.ay=dz(a.length>=4?a[3]:a[1]||0);
+    c.getWorldPosition(h.pos); c.getWorldQuaternion(h.quat);
+  });
+}
+
+// ---------- helpers ----------
+function headWorld(out){ if(renderer.xr.isPresenting) return camera.getWorldPosition(out); return out.set(P.x,groundH(P.x,P.z)+1.6,P.z); }
+function headYaw(){ if(!renderer.xr.isPresenting) return P.yaw; camera.getWorldDirection(V2); return Math.atan2(-V2.x,-V2.z); }
+function boardLocal(x,z){ // world xz -> board-local (lx across, lz along)
+  const dx=x-board.x, dzv=z-board.z, c=Math.cos(board.heading), s=Math.sin(board.heading);
+  return [dx*c-dzv*s, dx*s+dzv*c];
+}
+function distToBoard(p){
+  const [lx,lz]=boardLocal(p.x,p.z), dy=p.y-(board.y+.1), ez=Math.max(0,Math.abs(lz)-1.0);
+  return Math.hypot(lx,ez,dy);
+}
+function floating(){ return groundH(board.x,board.z)<-.12; }
+function setMsg(s,sec=3){msg=s;msgT=sec;}
+function rotateRigAboutHead(dyaw){ // snap-turn without moving the head
+  headWorld(V); const hx0=V.x,hz0=V.z; rig.rotation.y+=dyaw; P.yaw=rig.rotation.y;
+  headWorld(V); rig.position.x+=hx0-V.x; rig.position.z+=hz0-V.z; P.x=rig.position.x; P.z=rig.position.z;
+}
+
+function resetGame(){
+  P.x=0;P.z=4;P.yaw=0; mode='walk'; stance='stand'; simStand=false; deskGrab=false; needExit=false; mountCD=0;
+  Object.assign(board,{x:1.1,z:1.6,y:groundH(1.1,1.6),sy:0,vx:0,vz:0,heading:0,held:-1,fall:0});
+  rig.position.set(P.x,groundH(P.x,P.z),P.z); rig.rotation.set(0,0,0); bestShore=0;
+}
+
+// ---------- physics ----------
+function boardPhys(dt,pushK,baseK,dragF,thrust){
+  const b=board, sx=-Math.sin(b.heading), sz=-Math.cos(b.heading);
+  const sl=(waveH(b.x,b.z+.6,t)-waveH(b.x,b.z-.6,t))/1.2;
+  const slx=(waveH(b.x+.6,b.z,t)-waveH(b.x-.6,b.z,t))/1.2;
+  // only the shoreward face really drives you; the back of the wave pushes you only a little
+  const az=G*pushK*(Math.max(0,-sl)-.3*Math.max(0,sl))+baseK;
+  b.vx+=(-G*slx*pushK*.4+sx*thrust)*dt;
+  b.vz+=(az+sz*thrust)*dt;
+  const f=b.vx*sx+b.vz*sz, lx=b.vx-f*sx, lz=b.vz-f*sz, fd=Math.exp(-dragF*dt), ld=Math.exp(-3*dt);
+  b.vx=sx*f*fd+lx*ld; b.vz=sz*f*fd+lz*ld;
+  const sp=Math.hypot(b.vx,b.vz); if(sp>9){b.vx*=9/sp;b.vz*=9/sp;}
+  b.x=clamp(b.x+b.vx*dt,-120,120); b.z=clamp(b.z+b.vz*dt,-190,100);
+}
+
+function updateStance(){
+  const r=renderer.xr.isPresenting?camera.position.y/H:(simStand?1:.15), hy=.04;
+  if(stance==='prone'){ if(r>.34+hy) stance=r>.6?'stand':'sit'; }
+  else if(stance==='sit'){ if(r<.34-hy) stance='prone'; else if(r>.6+hy) stance='stand'; }
+  else if(r<.6-hy) stance=r<.34?'prone':'sit';
+}
+
+function mount(){
+  mode='ride'; needExit=false; board.held=-1; board.vx=board.vz=0; board.fall=0;
+  headWorld(V); board.x=V.x; board.z=V.z; board.heading=headYaw(); board.sy=waveH(board.x,board.z,t);
+  if(renderer.xr.isPresenting){ room.cx=camera.position.x; room.cz=camera.position.z; room.phi=board.heading-rig.rotation.y; }
+  stance=renderer.xr.isPresenting?stance:(simStand?'stand':'prone');
+  setMsg('On the board! Lie down to paddle, stand to surf.');
+}
+function dismount(text){
+  mode='walk'; needExit=true; mountCD=1.2; board.vx*=.3; board.vz*=.3;
+  if(renderer.xr.isPresenting){ P.x=rig.position.x; P.z=rig.position.z; P.yaw=rig.rotation.y; }
+  else{ P.x=board.x; P.z=board.z; P.yaw=board.heading; }
+  setMsg(text||'Bailed.');
+}
+
+// ---------- main step ----------
+function step(dt){
+  t+=dt; mountCD=Math.max(0,mountCD-dt); msgT=Math.max(0,msgT-dt);
+  const xr=renderer.xr.isPresenting;
+  if(xr) readXR();
+  else{ // desktop stand-in hand (right): E toggles grab
+    const h=hand[1]; h.ok=true; if(keyEdge.KeyE) deskGrab=!deskGrab; h.grip=deskGrab;
+    h.btn=!!keys.KeyQ; h.pos.set(P.x-Math.sin(P.yaw)*.9,groundH(P.x,P.z)+1.0,P.z-Math.cos(P.yaw)*.9);
+    h.quat.setFromEuler(new THREE.Euler(0,P.yaw,0));
+    if(keyEdge.Space) simStand=!simStand;
+  }
+  if(xr&&mode==='walk'&&camera.position.y>1.2) H=clamp(lerp(H,camera.position.y,.02),1.3,2.05);
+
+  // --- grab / release (walking only) ---
+  for(let k=0;k<2;k++){
+    const h=hand[k]; if(!h.ok) { h.prevGrip=h.grip; continue; }
+    if(mode==='walk'){
+      if(h.grip&&!h.prevGrip&&board.held<0&&distToBoard(h.pos)<(xr?.9:1.6)){ board.held=k; board.vx=board.vz=0; setMsg('Got it. Carry it to the water and let go.'); }
+      if(!h.grip&&h.prevGrip&&board.held===k){
+        V2.set(0,0,-1).applyQuaternion(board.held>=0?boardG.quaternion:h.quat); board.heading=Math.atan2(-V2.x,-V2.z); board.held=-1; board.fall=0;
+      }
+    }
+    h.prevGrip=h.grip;
+  }
+
+  if(mode==='walk'){
+    // locomotion
+    let mv=0,st=0,turn=0;
+    if(xr){ const a=hand[0].ok?hand[0]:hand[1]; mv=-a.ay; st=a.ax; const r=hand[1]; if(r.ok){ if(Math.abs(r.ax)>.6&&!r.snapped){ rotateRigAboutHead(-Math.sign(r.ax)*Math.PI/6); r.snapped=true; } else if(Math.abs(r.ax)<.3) r.snapped=false; } }
+    else{ mv=(keys.KeyW?1:0)-(keys.KeyS?1:0); turn=(keys.KeyA?1:0)-(keys.KeyD?1:0); P.yaw+=turn*1.8*dt; }
+    if(mv||st){
+      const yaw=xr?headYaw():P.yaw, fx=-Math.sin(yaw), fz=-Math.cos(yaw), rx=-fz, rz=fx;
+      const nx=P.x+(fx*mv+rx*st)*2.4*dt, nz=P.z+(fz*mv+rz*st)*2.4*dt;
+      if(groundH(nx,nz)>-.95){P.x=clamp(nx,-120,120);P.z=clamp(nz,-190,100);}   // can't wade into deep water
+    }
+    if(xr){ rig.position.x=P.x; rig.position.z=P.z; rig.rotation.y=P.yaw; rig.position.y=lerp(rig.position.y,groundH(P.x,P.z),Math.min(1,dt*8)); }
+    // board: held / falling / floating / grounded
+    const b=board;
+    if(b.held>=0){
+      const h=hand[b.held]; boardG.position.copy(h.pos); boardG.quaternion.copy(h.quat);
+      b.x=h.pos.x;b.z=h.pos.z;b.y=h.pos.y;
+      boardMat.emissive.setHex(0x331100);
+    }else{
+      const gnd=groundH(b.x,b.z), wet=gnd<-.06, surf=wet?Math.max(gnd,waveH(b.x,b.z,t)):gnd;
+      if(b.y>surf+.003){ b.fall+=G*dt; b.y=Math.max(surf,b.y-b.fall*dt); if(b.y===surf) b.fall=0; }
+      else{ b.y=lerp(b.y,surf,Math.min(1,dt*8)); b.fall=0; }
+      if(wet) boardPhys(dt,.5,0,.8,0); else { b.vx=b.vz=0; }
+      const sl=wet?(waveH(b.x,b.z+1,t)-waveH(b.x,b.z-1,t))/2:0;
+      boardG.position.set(b.x,b.y,b.z); boardG.rotation.set(Math.atan(sl)*.6,b.heading,0,'YXZ');
+      // glow when a hand is near
+      const near=hand.some(h=>h.ok&&distToBoard(h.pos)<(xr?.9:1.6)); boardMat.emissive.setHex(near?0x331100:0);
+    }
+    // step on the floating board to mount
+    if(board.held<0){
+      headWorld(V); const [lx,lz]=boardLocal(V.x,V.z), inside=Math.abs(lx)<.5&&Math.abs(lz)<1.2;
+      if(!inside) needExit=false;
+      if(inside&&!needExit&&mountCD<=0&&floating()&&groundH(V.x,V.z)<-.25) mount();
+    }
+  }
+  if(mode==='ride'){
+    updateStance();
+    const b=board, sx=-Math.sin(b.heading), sz=-Math.cos(b.heading);
+    let steer=0, thrust=0;
+        if(xr){
+      const fwdx=-Math.sin(room.phi), fwdz=-Math.cos(room.phi), rtx=Math.cos(room.phi), rtz=-Math.sin(room.phi);
+      const sk=[0,0];
+      for(let k=0;k<2;k++){ const h=hand[k]; if(!h.ok) continue;
+        const px=h.ctrl.position.x-room.cx, pz=h.ctrl.position.z-room.cz, p=px*fwdx+pz*fwdz, vel=(p-h.p)/Math.max(dt,.001);
+        h.p=p; h.v=lerp(h.v||0,vel,.5);
+        if(stance!=='stand'&&h.ctrl.position.y<camera.position.y+.1) sk[k]=clamp(-h.v,0,3);
+      }
+      thrust=(sk[0]+sk[1])*1.5; steer=-(sk[0]-sk[1])*.5;
+      const lean=(camera.position.x-room.cx)*rtx+(camera.position.z-room.cz)*rtz;
+      if(stance==='stand') steer-=clamp(lean/.22,-1,1)*.9;
+      steer-=(hand[0].ax+hand[1].ax)*1.0;
+    }else{
+      if(keys.KeyW&&stance!=='stand') thrust=2.8*(.7+.3*Math.sin(t*6));
+      steer=((keys.KeyA?1:0)-(keys.KeyD?1:0))*.9;
+    }
+    const spd=Math.hypot(b.vx,b.vz);
+    b.heading+=steer*(.45+Math.min(1,spd/4)*.8)*dt;
+    if(stance==='stand') boardPhys(dt,1.0,.7,.35,0);
+    else if(stance==='sit') boardPhys(dt,.5,0,.7,thrust);
+    else boardPhys(dt,.3,0,.9,thrust);
+    b.sy=lerp(b.sy,waveH(b.x,b.z,t),Math.min(1,dt*6)); b.y=b.sy;
+    const sl=(waveH(b.x,b.z+1,t)-waveH(b.x,b.z-1,t))/2, slx=(waveH(b.x+1,b.z,t)-waveH(b.x-1,b.z,t))/2;
+    boardG.position.set(b.x,b.y,b.z); boardG.rotation.set(Math.atan(sl)*.5,b.heading,-Math.atan(slx)*.4,'YXZ');
+    boardMat.emissive.setHex(0);
+    bestShore=Math.max(bestShore,-b.z);
+    if(hand[0].btn&&!hand[0].prevBtn||hand[1].btn&&!hand[1].prevBtn) dismount('You bailed.');
+    else if(groundH(b.x,b.z)>-.15){ dismount('You rode it all the way in!'); }
+    if(xr&&mode==='ride'){
+      rig.rotation.y=b.heading-room.phi; const R=rig.rotation.y, c=Math.cos(R), s=Math.sin(R);
+      rig.position.x=b.x-(room.cx*c+room.cz*s); rig.position.z=b.z-(-room.cx*s+room.cz*c); rig.position.y=b.y+DECK;
+    }
+  }
+  hand.forEach(h=>{h.prevBtn=h.btn;});
+  for(const k in keyEdge) delete keyEdge[k];
+
+  // desktop camera / rider
+  rider.visible=!xr&&mode==='ride';
+  if(!xr){
+    rig.position.set(0,0,0); rig.rotation.set(0,0,0);
+    if(mode==='ride'){
+      const b=board, sx=-Math.sin(b.heading), sz=-Math.cos(b.heading);
+      camera.position.set(b.x-sx*6.5,b.y+(stance==='stand'?3.6:2.8),b.z-sz*6.5); camera.lookAt(b.x+sx*3,b.y+.6,b.z+sz*3);
+      rider.position.set(b.x,b.y+DECK,b.z); rider.rotation.set(stance==='stand'?0:-Math.PI/2*.92,b.heading,0,'YXZ');
+      rider.children[0].position.set(0,.55,0); rider.position.y+=stance==='stand'?0:.2;
+    }else{
+      const gy=groundH(P.x,P.z); camera.position.set(P.x,gy+1.6,P.z); camera.rotation.set(-.08,P.yaw,0,'YXZ');
+    }
+  }
+  // water around whoever is looking
+  headWorld(V); updateWater(V.x,V.z,t);
+
+  // HUD
+  hudT-=dt;
+  if(hudT<=0){
+    hudT=.15;
+    const sp=Math.hypot(board.vx,board.vz)*3.6;
+    const sName={prone:'PADDLING',sit:'SITTING',stand:'SURFING'}[stance];
+    let l1,l2;
+    if(mode==='ride'){ l1=`${sName}  ${sp.toFixed(0)} km/h`; l2=`Shore: ${Math.max(0,Math.round(-board.z))} m`; if(stance==='stand'&&-board.z>25) l2+='  · waves push you in'; else if(-board.z>25&&stance==='prone') l2+='  · stand up when a wave comes'; }
+    else if(board.held>=0){ l1='Carry the board to the water'; l2='Let go in the sea, then step on it'; }
+    else{ l1='On foot'; l2=floating()?'Step onto the board':'Grip near the board to pick it up'; }
+    if(msgT>0) l2=msg;
+    drawHud(l1,l2);
+    $('stance').textContent=l1; $('info').textContent=l2; $('hinttext').textContent=mode==='ride'?'W paddle · A/D steer · Space lie/stand · Q bail':'W/S walk · A/D turn · E grab/drop board · step on floating board';
+  }
+  hsprite.visible=xr;
+}
+
+// ---------- start / VR ----------
+function start(){
+  resetGame(); started=true; $('menu').style.display='none'; $('hud').hidden=false; $('hint').hidden=false;
+  setMsg('Grab the board (E / grip), carry it to the water.',5);
+}
+$('play').onclick=start;
+addEventListener('keydown',e=>{ if(!started&&(e.code==='Enter')) start(); });
+if(navigator.xr){
+  navigator.xr.isSessionSupported('immersive-vr').then(ok=>{ if(ok) $('vr').disabled=false; }).catch(()=>{});
+}
+$('vr').onclick=async()=>{
+  try{
+    const session=await navigator.xr.requestSession('immersive-vr',{requiredFeatures:['local-floor']});
+    await renderer.xr.setSession(session);
+    session.addEventListener('end',()=>{ $('menu').style.display='flex'; started=false; });
+    start();
+  }catch(e){ $('msg').textContent='Could not start VR: '+e.message; }
+};
+
+resetGame();
+let last=performance.now();
+renderer.setAnimationLoop(()=>{
+  const now=performance.now(), dt=Math.min(.05,(now-last)/1000); last=now;
+  if(started) step(dt);
+  else{ t+=dt; camera.position.set(0,6,12); camera.lookAt(0,0,-30); boardG.position.set(board.x,board.y,board.z); updateWater(0,0,t); }
+  renderer.render(scene,camera);
+});
+window.__surf={board,P,room,hand,get mode(){return mode;},get stance(){return stance;},set simStand(v){simStand=v;},get t(){return t;},waveH,groundH};
+})();
+</script>
+</body>
+</html>
