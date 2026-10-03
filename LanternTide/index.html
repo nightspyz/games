@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v3.1 -->
+<!-- Lantern Tide v3.2 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -21,7 +21,7 @@ canvas{display:block;touch-action:none}
 <button id="vr">Enter VR</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// Lantern Tide v3.1: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v3.2: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 (() => {
@@ -2363,7 +2363,7 @@ const audio = (() => {
 })();
 
 // ===== The player: walking on the island beach =====
-const player = { x: ISL.x, z: ISL.z + ISL.r - 9, y: 0 };
+const player = { x: ISL.x, z: ISL.z + ISL.r - 9, y: 0, jy: 0, jv: 0 };
 player.y = groundY(player.x, player.z);
 let yaw = Math.PI / 2 + 0.35; // facing west along the beach, toward the dock, the sea on your left
 let pitch = 0;
@@ -2372,11 +2372,12 @@ colliders.push({ x: lighthouse.group.position.x, z: lighthouse.group.position.z,
 // ===== Hands: just a sphere on each =====
 const hands = [0, 1].map((i) => {
   const grip = renderer.xr.getControllerGrip(i);
-  grip.add(new THREE.Mesh(new THREE.SphereGeometry(0.04, 20, 14), new THREE.MeshStandardMaterial({ color: 0xdfeeee, emissive: 0x3a5560, roughness: 0.4 })));
+  const sph = new THREE.Mesh(new THREE.SphereGeometry(0.04, 20, 14), new THREE.MeshStandardMaterial({ color: 0xdfeeee, emissive: 0x3a5560, roughness: 0.4 }));
+  grip.add(sph);
   rig.add(grip);
   const ray = renderer.xr.getController(i);
   rig.add(ray);
-  const h = { grip, ray, side: null, gamepad: null };
+  const h = { grip, ray, side: null, gamepad: null, sph };
   ray.addEventListener("connected", (e) => {
     h.side = e.data.handedness;
     h.gamepad = e.data.gamepad || null;
@@ -4227,6 +4228,7 @@ function readControls(dt) {
 const camFwd = new THREE.Vector3();
 const tmpV = new THREE.Vector3();
 let vigWant = 0;
+let aWas = false;
 function blocked(x, z) {
   const onBoat = boatDeckAt(x, z);
   if (onBoat === "cabin") return true;
@@ -4260,7 +4262,17 @@ function updatePlayer(dt) {
   const bh = boatDeckAt(player.x, player.z);
   if (typeof bh === "number") standY = Math.max(standY, bh);
   player.y += (standY - player.y) * (1 - Math.exp(-dt * 14));
-  rig.position.set(player.x, player.y, player.z);
+  // Jump: A on the right controller (or Space on a screen when your hands are empty)
+  const Rh = handOf("right");
+  const aDown = !!(Rh && Rh.gamepad && Rh.gamepad.buttons[4] && Rh.gamepad.buttons[4].pressed);
+  let jumpReq = aDown && !aWas;
+  aWas = aDown;
+  if (!renderer.xr.isPresenting && spaceTap && !props.some((p) => p.holder)) jumpReq = true;
+  if (jumpReq && player.jy <= 0.001) player.jv = 4.3; // about 90 cm
+  player.jv -= 9.8 * dt;
+  player.jy += player.jv * dt;
+  if (player.jy <= 0) player.jy = player.jv = 0;
+  rig.position.set(player.x, player.y + player.jy, player.z);
   rig.rotation.y = yaw;
   if (!renderer.xr.isPresenting) camera.rotation.set(pitch, 0, 0, "YXZ");
   vigWant = renderer.xr.isPresenting ? Math.min(1, len * (runOn ? 0.7 : 0.4) + Math.abs(input.turn) * 0.5) * 0.45 : 0;
@@ -4917,7 +4929,7 @@ const fireworks = Array.from({ length: 6 }, (_, i) => makeFirework(i));
 // ===== The drone (Coastline's camera drone): a model, a landing pad and a hand controller with a live camera screen =====
 const DRONE_RANGE = 200; // metres from you, in any direction
 const DRONE_BATTERY = 180; // seconds of flight
-const drone = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: -0.2, mode: "landed", battery: DRONE_BATTERY, padX: 0, padY: 0, padZ: 0, spin: 0, warned: false, msg: "" };
+const drone = { idle: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: -0.2, mode: "landed", battery: DRONE_BATTERY, padX: 0, padY: 0, padZ: 0, spin: 0, warned: false, msg: "" };
 const droneCam = new THREE.PerspectiveCamera(65, 320 / 192, 0.25, 6000);
 const droneGroup = new THREE.Group();
 const droneRotors = [];
@@ -5038,6 +5050,7 @@ const controllerProp = (() => {
   const p = makeProp({ name: "controller", group, body, trigWas: false, hudT: 0, frame: 0 });
   p.rest = (x, z, yawR) => {
     scene.add(group);
+    group.scale.setScalar(1);
     const onTable = Math.hypot(x - dronePad.tableX, z - dronePad.tableZ) < 0.5;
     group.position.set(x, onTable ? dronePad.tableTop + 0.022 : Math.max(groundY(x, z), 0.1) + 0.022, z);
     group.rotation.set(0, yawR, 0);
@@ -5045,8 +5058,9 @@ const controllerProp = (() => {
   };
   p.hold = (parent, screenMode) => {
     parent.add(group);
-    group.position.set(screenMode ? 0.18 : 0, screenMode ? -0.2 : 0.0, screenMode ? -0.42 : -0.03);
-    group.rotation.set(screenMode ? 0.55 : 0.6, 0, 0); // the screen tipped back toward your eyes
+    group.scale.setScalar(screenMode ? 1 : 1.8); // in VR it takes the place of your hand, large enough to read the screen
+    group.position.set(screenMode ? 0.18 : 0, screenMode ? -0.2 : 0.02, screenMode ? -0.42 : -0.04);
+    group.rotation.set(screenMode ? 0.55 : 0.75, 0, 0); // the screen tipped back toward your eyes
   };
   p.drop = (x, z) => p.rest(x, z, rand(0, 6.28));
   p.tick = (dt) => {
@@ -5076,6 +5090,22 @@ const controllerProp = (() => {
 // Flying: smooth and a little floaty, kept above the sea and land and within radio range
 function updateDrone(dt, t) {
   const ctl = controllerProp.holder;
+  // Not used for a while: it flies itself home, and if it's still been forgotten, everything is put back
+  drone.idle = ctl ? 0 : drone.idle + dt;
+  if (drone.idle > 45 && drone.mode === "flying") drone.mode = "landing";
+  if (drone.idle > 90) {
+    const offTable = Math.hypot(controllerProp.group.position.x - dronePad.tableX, controllerProp.group.position.z - dronePad.tableZ) > 0.6 || controllerProp.group.parent !== scene;
+    if (drone.mode !== "landed" || offTable || drone.battery < DRONE_BATTERY) {
+      drone.mode = "landed";
+      drone.vx = drone.vy = drone.vz = 0;
+      drone.yaw = yaw;
+      drone.pitch = -0.2;
+      drone.battery = DRONE_BATTERY;
+      drone.warned = false;
+      if (!ctl) controllerProp.rest(dronePad.tableX, dronePad.tableZ, yaw + Math.PI);
+    }
+    drone.idle = 0;
+  }
   let fwd = 0, side = 0, up = 0, turn = 0;
   if (ctl && drone.mode === "flying") {
     if (ctl === "screen") {
@@ -5086,9 +5116,10 @@ function updateDrone(dt, t) {
     } else {
       const [lx, ly] = stickOf(handOf("left"));
       const [rx, ry] = stickOf(handOf("right"));
-      fwd = Math.abs(ly) > DEAD ? -ly : 0;
+      // like a real drone remote: left stick = throttle (up / down) and yaw (rotate); right stick = fly forward / back and strafe
+      up = Math.abs(ly) > DEAD ? -ly : 0;
       turn = Math.abs(lx) > DEAD ? -lx : 0;
-      up = Math.abs(ry) > DEAD ? -ry : 0;
+      fwd = Math.abs(ry) > DEAD ? -ry : 0;
       side = Math.abs(rx) > DEAD ? rx : 0;
     }
   }
@@ -5307,6 +5338,7 @@ function updateProps(dt) {
       }
     }
   }
+  for (const h of hands) h.sph.visible = !props.some((p) => p.holder === h);
   for (const p of props) p.tick(dt);
   spaceTap = false;
 }
