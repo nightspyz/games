@@ -1,0 +1,28 @@
+Lantern Tide - version 3.1 (3 Oct 2026)
+
+Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
+Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 3.1:
+- Fireworks from Coastline: a crate of rockets on the beach. Pick one up, light it (trigger, or touch the fuse
+  to the campfire) and it shoots up. Set one down and it plants upright and flies straight up.
+- Drone from Coastline: a model on a landing pad and a hand controller with a live camera screen.
+  VR: sticks fly it, trigger takes off / lands. Screen: WASD, R / F, drag, Space.
+- One shared pick-up system for the stick, rockets and controller.
+- Click the left stick to toggle run mode.
+
+New in 3.0:
+- Coastline's reef (7 coral kinds), kelp forests, fish schools, leaping fish and cabin cruiser.
+- A small dock with the boat moored alongside, in a sheltered, dredged basin behind a breakwater.
+- Coastline's weather: forecast cycle plus fog days. Random weather and time of day on each visit.
+
+New in 2.1:
+- Random fog / rain / storm spells, new billowy clouds with cirrus, a smaller dimmer sun.
+
+New in 2.0 (the island rework):
+- Walk the island beach through a full day and night (8 minutes); no raft, menus or score.
+- Chinese festival lanterns (lotus lanterns on the water, rising sky lanterns, red lanterns on bamboo poles).
+- Procedural sand shader, footprints, a stick to draw in the sand, campfire, wind-driven palms and grass,
+  red / purple sunsets, god rays, a conical lighthouse beam, textured lighthouse, rocks and driftwood.
+
+1.0: the original raft game on the Coastline ocean.
