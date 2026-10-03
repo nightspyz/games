@@ -2980,6 +2980,7 @@ addEventListener("keyup", (e) => keys.delete(e.code));
   });
 }
 const input = { x: 0, z: 0, turn: 0 };
+let runOn = false, stickWas = false; // click the left stick to switch running on and off
 function readControls(dt) {
   input.x = input.z = input.turn = 0;
   if (renderer.xr.isPresenting) {
@@ -2989,6 +2990,12 @@ function readControls(dt) {
     const ly = la.length >= 4 ? la[3] : la[1] || 0;
     if (Math.abs(lx) > DEAD) input.x = lx;
     if (Math.abs(ly) > DEAD) input.z = ly;
+    const click = !!(L && L.gamepad && L.gamepad.buttons[3] && L.gamepad.buttons[3].pressed);
+    if (click && !stickWas) {
+      runOn = !runOn;
+      buzz(L, 0.3, 40);
+    }
+    stickWas = click;
     const ra = R && R.gamepad ? R.gamepad.axes : [];
     const rx = ra.length >= 4 ? ra[2] : ra[0] || 0;
     if (Math.abs(rx) > DEAD) input.turn = rx;
@@ -3023,7 +3030,7 @@ function updatePlayer(dt) {
   const len = Math.min(1, mag);
   if (mag > 0) {
     const nx = input.x / mag, nz = input.z / mag;
-    const speed = (keys.has("ShiftLeft") ? 5 : 2.3) * len;
+    const speed = (keys.has("ShiftLeft") || runOn ? 5 : 2.3) * len;
     const dx = (rightX * nx - camFwd.x * nz) * speed * dt;
     const dz = (rightZ * nx - camFwd.z * nz) * speed * dt;
     // slide along walls and the waterline instead of stopping dead
@@ -3035,7 +3042,7 @@ function updatePlayer(dt) {
   rig.position.set(player.x, player.y, player.z);
   rig.rotation.y = yaw;
   if (!renderer.xr.isPresenting) camera.rotation.set(pitch, 0, 0, "YXZ");
-  vigWant = renderer.xr.isPresenting ? Math.min(1, len * 0.4 + Math.abs(input.turn) * 0.5) * 0.45 : 0;
+  vigWant = renderer.xr.isPresenting ? Math.min(1, len * (runOn ? 0.7 : 0.4) + Math.abs(input.turn) * 0.5) * 0.45 : 0;
 }
 
 // ===== Comfort: the edges of your view darken a little while you move or turn =====
