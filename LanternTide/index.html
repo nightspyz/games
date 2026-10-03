@@ -128,8 +128,8 @@ const NOISE_GLSL = /* glsl */ `
   }
 `;
 
-const CLOUD_BOTTOM = 500;
-const CLOUD_TOP = 900;
+const CLOUD_BOTTOM = 450;
+const CLOUD_TOP = 1150;
 const CLOUD_SHADOW_HEIGHT = 650;
 
 const CLOUD_GLSL = /* glsl */ `
@@ -166,9 +166,20 @@ const CLOUD_GLSL = /* glsl */ `
   float cloudDensity(vec3 p) {
     float h = (p.y - CLOUD_BOTTOM) / (CLOUD_TOP - CLOUD_BOTTOM);
     if (h < 0.0 || h > 1.0) return 0.0;
-    vec3 q = vec3(p.x - uCloudOffset.x, p.y, p.z - uCloudOffset.y) * 0.0016;
-    float thr = mix(0.62, 0.3, uCloudCover) + h * 0.18; // flat bottoms, billowy tops
-    return max((fbm3(q) - thr) * 5.0 * smoothstep(0.0, 0.1, h), 0.0);
+    vec2 xz = p.xz - uCloudOffset;
+    // a weather map: clouds gather into banks with clear gaps between them
+    float bank = noise3(vec3(xz * 0.00032, 3.0)) * 0.7 + noise3(vec3(xz * 0.0009 + 11.0, 7.0)) * 0.3;
+    float cov = clamp(uCloudCover + (bank - 0.5) * 0.9, 0.0, 1.0);
+    // billowy cumulus: a low-frequency base shape, with fine detail eating into its edges
+    vec3 q = vec3(xz.x * 0.0017, p.y * 0.0026, xz.y * 0.0021);
+    float base = fbm3(q);
+    float detail = fbm3(q * 3.3 + vec3(13.0, 2.0, 5.0));
+    // flat bottoms; tops climb higher in the thick banks and round off
+    float top = mix(0.4, 1.0, cov);
+    float hm = smoothstep(0.0, 0.1, h) * (1.0 - smoothstep(top - 0.4, top, h));
+    float thr = mix(0.6, 0.3, cov) + (1.0 - hm) * 0.25;
+    float s = base - thr - (1.0 - detail) * 0.1 * (0.3 + 0.7 * h);
+    return max(s * 5.5, 0.0);
   }
   // 1 = full sun, lower = under a cloud
   float cloudShadow(vec3 wp, vec3 sunDir) {
@@ -200,20 +211,28 @@ function cloudNoise3(x, y, z) {
   const d = lerp(cloudHash3(ix, iy + 1, iz + 1), cloudHash3(ix + 1, iy + 1, iz + 1), ux);
   return lerp(lerp(a, b, uy), lerp(c, d, uy), uz);
 }
+function cloudFbm3(x, y, z) {
+  let v = 0, a = 0.5;
+  for (let i = 0; i < 4; i++) {
+    v += a * cloudNoise3(x, y, z);
+    x = x * 2.02 + 17.1;
+    y = y * 2.02 + 9.2;
+    z = z * 2.02 + 4.7;
+    a *= 0.5;
+  }
+  return v;
+}
 function cloudDensityJS(x, y, z, cover, offset) {
   const h = (y - CLOUD_BOTTOM) / (CLOUD_TOP - CLOUD_BOTTOM);
   if (h < 0 || h > 1) return 0;
-  let qx = (x - offset.x) * 0.0016, qy = y * 0.0016, qz = (z - offset.y) * 0.0016;
-  let v = 0, a = 0.5;
-  for (let i = 0; i < 4; i++) {
-    v += a * cloudNoise3(qx, qy, qz);
-    qx = qx * 2.02 + 17.1;
-    qy = qy * 2.02 + 9.2;
-    qz = qz * 2.02 + 4.7;
-    a *= 0.5;
-  }
-  const thr = 0.62 + (0.3 - 0.62) * cover + h * 0.18;
-  return Math.max((v - thr) * 5 * smooth(0, 0.1, h), 0);
+  const px = x - offset.x, pz = z - offset.y;
+  const bank = cloudNoise3(px * 0.00032, 0, pz * 0.00032 + 0) * 0.7 + cloudNoise3(px * 0.0009 + 11, 7, pz * 0.0009 + 11) * 0.3;
+  const cov = clamp(cover + (bank - 0.5) * 0.9, 0, 1);
+  const base = cloudFbm3(px * 0.0017, y * 0.0026, pz * 0.0021);
+  const top = lerp(0.4, 1.0, cov);
+  const hm = smooth(0, 0.1, h) * (1 - smooth(top - 0.4, top, h));
+  const thr = lerp(0.6, 0.3, cov) + (1 - hm) * 0.25;
+  return Math.max((base - thr - 0.05 * (0.3 + 0.7 * h)) * 5.5, 0);
 }
 function cloudShadowJS(x, y, z, sunDir, cover, offset) {
   const s = Math.max(sunDir.y, 0.08);
@@ -278,8 +297,17 @@ const sky = new THREE.Mesh(
 
         // Sun disc and halo
         float sd = max(dot(d, uSunDir), 0.0);
-        col += uSunColor * (pow(sd, 1500.0) * 6.0 + pow(sd, 12.0) * 0.25) * uSunVis;
+        col += uSunColor * (pow(sd, 9000.0) * 2.5 + pow(sd, 70.0) * 0.1 + pow(sd, 7.0) * 0.03) * uSunVis;
 
+        // Cirrus: thin streaks of ice cloud high above the rest
+        if (d.y > 0.03) {
+          vec2 cp = d.xz / (d.y + 0.15);
+          vec2 shp = vec2(cp.x * 0.6, cp.y * 2.6) + uCloudOffset * 0.00004;
+          float cir = fbm(shp * 1.6 + fbm(shp * 0.8) * 1.5);
+          float cirrus = smoothstep(0.52, 0.8, cir) * smoothstep(0.03, 0.3, d.y) * (1.0 - 0.7 * uCloudCover);
+          vec3 cc = mix(vec3(1.0), uSunColor * vec3(1.0, 0.7, 0.7), uSunset) * (0.12 + 0.88 * uLightLevel) * (1.0 - 0.5 * uCloudDark);
+          col = mix(col, cc, cirrus * 0.4 * (1.0 - uFog));
+        }
         float cloudAlpha = 0.0;
         // Volumetric clouds: raymarch through the cloud layer, lighting each sample toward the sun
         if (d.y > 0.01) {
@@ -293,15 +321,17 @@ const sky = new THREE.Mesh(
             float t = t0 + stepLen * hash(gl_FragCoord.xy);
             float trans = 1.0;
             vec3 acc = vec3(0.0);
-            vec3 sunLit = mix(vec3(1.0), uSunColor * vec3(1.0, 0.75, 0.7), 0.95 * uSunset) * uLightLevel * (1.0 - 0.7 * uCloudDark);
-            vec3 ambient = (mix(uHorizon, uTop, 0.5) * 0.5 + vec3(0.04) * uLightLevel + vec3(0.3, 0.09, 0.36) * uSunset * 0.35) * (1.0 - 0.5 * uCloudDark);
-            float phase = 1.0 + 1.5 * pow(sd, 8.0) * uSunVis; // bright silver edges toward the sun
+            vec3 sunLit = mix(vec3(0.95), uSunColor * vec3(1.0, 0.75, 0.7), 0.95 * uSunset) * uLightLevel * (1.0 - 0.7 * uCloudDark);
+            vec3 ambient = (mix(uHorizon, uTop, 0.5) * 0.75 + vec3(0.04) * uLightLevel + vec3(0.3, 0.09, 0.36) * uSunset * 0.35) * (1.0 - 0.5 * uCloudDark);
+            float phase = 1.0 + 0.8 * pow(sd, 10.0) * uSunVis; // silver edges toward the sun
             for (int i = 0; i < STEPS; i++) {
               vec3 p = ro + d * t;
               float dens = cloudDensity(p);
               if (dens > 0.001) {
                 float ld = cloudDensity(p + uSunDir * 60.0) + cloudDensity(p + uSunDir * 160.0);
-                vec3 lit = sunLit * exp(-ld * 0.9) * phase + ambient;
+                float powder = 1.0 - exp(-dens * stepLen * 0.014); // thin edges catch less light than the dense middle
+                vec3 lit = sunLit * exp(-ld * 0.7) * phase * (0.6 + 0.4 * powder) + ambient;
+                lit = lit / (1.0 + 0.3 * lit);                    // soft highlights, so sunlit cloud tops don't clip to white
                 float a = 1.0 - exp(-dens * stepLen * 0.006);
                 acc += trans * a * lit;
                 trans *= 1.0 - a;
@@ -612,7 +642,7 @@ const FOAM_GLSL = /* glsl */ `
     float surfDensity = max(max(lipFoam, trail), 0.45 * smoothstep(1.2, 1.8, stage) * (0.6 + 0.8 * foamNoise)) * foamSize;
     // The swash: a bright foam line along its edge, lace scattered over the thin water behind it
     float edgeLine = smoothstep(0.0, 0.012, depthW) * exp(-depthW / 0.035);
-    float swashLace = (1.0 - smoothstep(0.05, 0.6, depthW)) * 0.55 * clamp(0.4 + ws * 0.6, 0.0, 1.0) * smoothstep(-0.02, 0.02, w.y - bed);
+    float swashLace = (1.0 - smoothstep(0.05, 0.6, depthW)) * 0.35 * clamp(0.4 + ws * 0.6, 0.0, 1.0) * smoothstep(-0.02, 0.02, w.y - bed);
     float density = clamp(max(max(capDensity, surfDensity), max(edgeLine, swashLace)), 0.0, 1.0);
     vec2 drift = vec2(0.0, t * 0.15); // the foam drifts slowly toward the shore
     return mix(foamLace(w.xz + drift, density), density * 0.7, far); // smooth it far away
@@ -1902,8 +1932,8 @@ const dotTexture = (() => {
 lighthouse.glow.material.map = dotTexture;
 
 // ===== Weather =====
-const weather = { value: 0.15, target: 0.15, windAngle: -Math.PI / 2, windSpeed: 6, flash: 0, secondFlash: -1, strikeTimer: 6, cloudOffset: new THREE.Vector2(), auto: true, autoTimer: 70 };
-const wx = { cover: 0, overcast: 0, rain: 0, storm: 0 };
+const weather = { fog: 0, fogTarget: 0, value: 0.15, target: 0.15, windAngle: -Math.PI / 2, windSpeed: 6, flash: 0, secondFlash: -1, strikeTimer: 6, cloudOffset: new THREE.Vector2(), auto: true, autoTimer: 70 };
+const wx = { cover: 0, overcast: 0, rain: 0, storm: 0, fog: 0 };
 
 // ----- Rain -----
 const RAIN_COUNT = 3000, RAIN_BOX = 60, RAIN_HEIGHT = 36;
@@ -1986,10 +2016,19 @@ function updateWeather(dt) {
   if (weather.auto) {
     weather.autoTimer -= dt;
     if (weather.autoTimer <= 0) {
-      weather.target = [0.08, 0.15, 0.22, 0.3, 0.4, 0.55, 0.85][Math.floor(Math.random() * 7)];
-      weather.autoTimer = rand(60, 120);
+      // the next spell of weather, picked at random: some clear days, some cloud, rain, the odd storm, banks of fog
+      const STATES = [
+        { v: 0.06, fog: 0, w: 3 }, { v: 0.18, fog: 0, w: 3 }, { v: 0.32, fog: 0, w: 2 }, { v: 0.5, fog: 0, w: 2 },
+        { v: 0.68, fog: 0, w: 2 }, { v: 0.95, fog: 0, w: 1 }, { v: 0.1, fog: 1, w: 1.5 }, { v: 0.28, fog: 0.5, w: 1.5 },
+      ];
+      let r = Math.random() * STATES.reduce((a, s) => a + s.w, 0);
+      const pick = STATES.find((s) => (r -= s.w) < 0) || STATES[0];
+      weather.target = pick.v;
+      weather.fogTarget = pick.fog;
+      weather.autoTimer = rand(70, 140);
     }
   }
+  weather.fog += clamp(weather.fogTarget - weather.fog, -0.02 * dt, 0.02 * dt);
   weather.value += clamp(weather.target - weather.value, -0.03 * dt, 0.03 * dt);
   weather.windAngle += rand(-0.5, 0.5) * 0.05 * dt;
   weather.windAngle = clamp(weather.windAngle, -Math.PI / 2 - 0.6, -Math.PI / 2 + 0.6); // always blowing toward the island, more or less
@@ -1998,6 +2037,7 @@ function updateWeather(dt) {
   wx.overcast = smooth(0.25, 0.85, w);
   wx.rain = smooth(0.4, 0.65, w);
   wx.storm = smooth(0.75, 0.95, w);
+  wx.fog = weather.fog;
   // Wind drives the waves and the clouds
   weather.windSpeed = 3 + 21 * w;
   waveScale = 0.55 + 1.45 * w;
@@ -2030,6 +2070,7 @@ const PALETTE = {
   overcastTop: new THREE.Color(0x4f5761),
   overcastHorizon: new THREE.Color(0x7d858e),
   flash: new THREE.Color(0xc8d4ff),
+  fog: new THREE.Color(0xc3cacf),
   sunLow: new THREE.Color(0xff5a22),
   sunHigh: new THREE.Color(0xfff3dd),
   deepWater: new THREE.Color(0x0b3553),
@@ -2057,6 +2098,12 @@ function applyEnvironment(hours) {
   horizon.copy(PALETTE.duskHorizon).lerp(PALETTE.nightHorizon, night).lerp(PALETTE.dayHorizon, day);
   top.lerp(tmpColor.copy(PALETTE.overcastTop).multiplyScalar(lightLevel), wx.overcast * 0.85);
   horizon.lerp(tmpColor.copy(PALETTE.overcastHorizon).multiplyScalar(lightLevel), wx.overcast * 0.85);
+  if (wx.fog > 0) {
+    // fog: everything fades into a soft grey-white
+    tmpColor.copy(PALETTE.fog).multiplyScalar(lightLevel);
+    top.lerp(tmpColor, wx.fog * 0.85);
+    horizon.lerp(tmpColor, wx.fog * 0.95);
+  }
   if (flash > 0) {
     top.lerp(PALETTE.flash, flash * 0.6);
     horizon.lerp(PALETTE.flash, flash * 0.5);
@@ -2064,12 +2111,13 @@ function applyEnvironment(hours) {
 
   shared.uSunColor.value.copy(PALETTE.sunLow).lerp(PALETTE.sunHigh, day);
   shared.uSunset.value = (1 - smooth(0.0, 0.55, e > 0 ? e : -e * 2.2)) * (1 - 0.8 * wx.overcast); // a long, colourful sunset and twilight
-  shared.uSunVis.value = smooth(-0.04, 0.02, e) * (1 - 0.9 * wx.overcast);
-  shared.uStars.value = night * (1 - wx.overcast);
-  shared.uAurora.value = night * (1 - wx.cover) * (0.75 + 0.25 * Math.sin(shared.uTime.value * 0.03));
+  shared.uSunVis.value = smooth(-0.04, 0.02, e) * (1 - 0.9 * wx.overcast) * (1 - 0.75 * wx.fog);
+  shared.uFog.value = wx.fog;
+  shared.uStars.value = night * (1 - wx.overcast) * (1 - wx.fog);
+  shared.uAurora.value = night * (1 - wx.cover) * (1 - wx.fog) * (0.75 + 0.25 * Math.sin(shared.uTime.value * 0.03));
   shared.uCloudCover.value = wx.cover;
   // god rays are strongest with a low sun partly hidden by broken cloud
-  shared.uRays.value = smooth(-0.12, 0.06, e) * (1 - 0.55 * smooth(0.3, 0.9, e)) * (0.3 + 0.7 * wx.cover) * (1 - 0.75 * smooth(0.55, 0.95, wx.overcast));
+  shared.uRays.value = smooth(-0.12, 0.06, e) * (1 - 0.55 * smooth(0.3, 0.9, e)) * (0.3 + 0.7 * wx.cover) * (1 - 0.75 * smooth(0.55, 0.95, wx.overcast)) * (1 - wx.fog);
   shared.uCloudDark.value = smooth(0.35, 0.95, weather.value);
   shared.uCloudOffset.value.copy(weather.cloudOffset);
   shared.uLightLevel.value = Math.max(lightLevel, 0.08) + flash * 0.8;
@@ -2081,10 +2129,10 @@ function applyEnvironment(hours) {
   waterUniforms.uShallow.value.copy(PALETTE.shallowWater).lerp(PALETTE.stormShallow, wx.overcast);
 
   // Rain cuts visibility
-  waterUniforms.uFogNear.value = FOG_NEAR * (1 - 0.6 * wx.rain);
-  waterUniforms.uFogFar.value = FOG_FAR - 90 * wx.rain;
-  scene.fog.near = lerp(120, 40, wx.rain);
-  scene.fog.far = lerp(900, 400, wx.rain);
+  waterUniforms.uFogNear.value = lerp(FOG_NEAR * (1 - 0.6 * wx.rain), 6, wx.fog);
+  waterUniforms.uFogFar.value = lerp(FOG_FAR - 90 * wx.rain, 130, wx.fog);
+  scene.fog.near = lerp(lerp(120, 40, wx.rain), 6, wx.fog);
+  scene.fog.far = lerp(lerp(900, 400, wx.rain), 130, wx.fog);
   landUniforms.uFogN.value = scene.fog.near;
   landUniforms.uFogF.value = scene.fog.far;
   landUniforms.uWet.value = wx.rain;
@@ -2231,6 +2279,330 @@ const hands = [0, 1].map((i) => {
 });
 const handOf = (side) => hands.find((h) => h.side === side);
 
+// ===== Under the water: seagrass, kelp, corals and schools of fish =====
+// Makes a material look like it's under the water when below the surface: colours fade with the
+// distance travelled through the water (red first), and it blends in less at grazing angles.
+// wag > 0 also swishes the tail end of the mesh (for fish).
+function applyUnderwater(material, wag = 0) {
+  material.transparent = true;
+  material.customProgramCacheKey = () => "underwater-" + wag;
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = shared.uTime;
+    shader.uniforms.uLight = waterUniforms.uLight;
+    shader.vertexShader =
+      (wag ? "attribute float aPhase;\nuniform float uTime;\n" : "") +
+      "varying vec3 vUW;\n" +
+      shader.vertexShader
+        .replace(
+          "#include <begin_vertex>",
+          `#include <begin_vertex>
+          ${wag ? `transformed.x += sin(uTime * 14.0 + aPhase) * ${wag.toFixed(3)} * smoothstep(-0.05, 0.3, transformed.z);` : ""}`
+        )
+        .replace(
+          "#include <fog_vertex>",
+          `#include <fog_vertex>
+          vec4 uwPos = vec4(transformed, 1.0);
+          #ifdef USE_INSTANCING
+            uwPos = instanceMatrix * uwPos;
+          #endif
+          vUW = (modelMatrix * uwPos).xyz;`
+        );
+    shader.fragmentShader =
+      "uniform float uLight;\nuniform float uTime;\nvarying vec3 vUW;\n" +
+      shader.fragmentShader.replace(
+        "#include <fog_fragment>",
+        `float below = -vUW.y;
+        if (below > 0.0) {
+          vec3 rd = normalize(vUW - cameraPosition);
+          float pathLen = below / max(-rd.y, 0.08);
+          // Caustics: sunlight focused by the waves, dancing over surfaces that face up
+          float facing = abs(normalize(cross(dFdx(vUW), dFdy(vUW)) + vec3(1e-6)).y); // how much the surface faces up
+          float cw = sin(vUW.x * 1.7 + sin(vUW.z * 1.3 + uTime * 0.9) * 1.5 + uTime)
+                   * sin(vUW.z * 1.9 + sin(vUW.x * 1.1 - uTime * 0.7) * 1.5 - uTime * 0.8);
+          gl_FragColor.rgb *= 1.0 + 0.7 * pow(max(cw, 0.0), 3.0) * facing * exp(-below * 0.12) * uLight;
+          // colour fades with depth, red first, into bright turquoise, so things match the floor they sit on
+          vec3 absorb = exp(-below * vec3(0.32, 0.1, 0.07));
+          vec3 inscatter = vec3(0.2, 0.85, 0.9) * uLight;
+          gl_FragColor.rgb = gl_FragColor.rgb * absorb + inscatter * (1.0 - absorb);
+          // Solid up close; only the surface reflection at a low angle, and distance, fade them out
+          float fres = 0.02 + 0.98 * pow(1.0 - abs(rd.y), 5.0);
+          gl_FragColor.a *= (1.0 - fres) * (1.0 - smoothstep(25.0, 45.0, pathLen));
+        }
+        #include <fog_fragment>`
+      );
+  };
+  return material;
+}
+
+// Plants that sway with the swell: bend grows toward the tip, and the whole thing rocks to and fro
+function seaMaterial(sway) {
+  const m = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  applyUnderwater(m, 0);
+  if (sway) {
+    const prev = m.onBeforeCompile;
+    m.onBeforeCompile = (sh) => {
+      prev(sh);
+      sh.vertexShader =
+        "attribute vec3 aBase;\nattribute vec3 aSway;\nuniform float uTime;\nuniform float uSwellAmp;\n" +
+        sh.vertexShader.replace(
+          "#include <begin_vertex>",
+          /* glsl */ `#include <begin_vertex>
+          {
+            float H = max(aSway.x, 0.1);
+            float hn = clamp((position.y - aBase.y) / H, 0.0, 1.4);
+            float k = hn * hn * aSway.y;
+            float ph = aSway.z;
+            float surge = sin(uTime * 0.95 + aBase.x * 0.11 + aBase.z * 0.09 + ph * 0.3);
+            float chop = sin(uTime * 1.7 + ph);
+            transformed.z -= (0.3 * surge + 0.08 * chop) * H * k * uSwellAmp;   // to and fro with the swell, toward the island
+            transformed.x += 0.07 * sin(uTime * 1.3 + ph * 2.0 + position.y * 2.0) * H * k * uSwellAmp;
+          }`
+        );
+      sh.uniforms.uSwellAmp = swellAmp;
+    };
+    m.customProgramCacheKey = () => "sea-sway";
+  }
+  return m;
+}
+const swellAmp = { value: 0.6 };
+
+const reefSpot = (minD, maxD, spread = 1.7) => {
+  const a = Math.PI / 2 + rand(-spread, spread), d = rand(minD, maxD);
+  const x = ISL.x + Math.cos(a) * (ISL.r + d), z = ISL.z + Math.sin(a) * (ISL.r + d);
+  return { x, z, y: bedHeightJS(x, z), d };
+};
+
+// ----- Seagrass meadows and kelp -----
+const seaweedMesh = (() => {
+  const m = plantNew();
+  plantKind = 0;
+  const up = new THREE.Vector3(0, 1, 0);
+  // seagrass: dense short blades in the shallows
+  for (let i = 0; i < 420; i++) {
+    const c = reefSpot(7, 70);
+    if (jfbm(c.x * 0.05, c.z * 0.05, 4, 3) < 0.46) continue; // meadows, not an even carpet
+    for (let t = 0; t < 4; t++) {
+      const x = c.x + rand(-0.6, 0.6), z = c.z + rand(-0.6, 0.6), y = bedHeightJS(x, z);
+      if (y > -0.35) continue;
+      const base = new THREE.Vector3(x, y - 0.03, z);
+      for (let b = 0; b < 6; b++) {
+        const hgt = rand(0.35, 0.95), ang = rand(0, 6.28), ph = Math.random() * 6.28;
+        const bx = x + rand(-0.15, 0.15), bz = z + rand(-0.15, 0.15);
+        const bb = new THREE.Vector3(bx, y - 0.03, bz);
+        const lean = new THREE.Vector3(Math.cos(ang), 0, Math.sin(ang)).multiplyScalar(hgt * rand(0.1, 0.35));
+        const side = new THREE.Vector3(-Math.sin(ang + 1.2), 0, Math.cos(ang + 1.2)).multiplyScalar(0.02);
+        const mid = bb.clone().addScaledVector(up, hgt * 0.55).addScaledVector(lean, 0.4);
+        const tip = bb.clone().addScaledVector(up, hgt).add(lean);
+        const v = rand(0.8, 1.15);
+        const cb = new THREE.Color(0x1d4a2a).multiplyScalar(v), cm = new THREE.Color(0x3f8a3a).multiplyScalar(v), ct = new THREE.Color(0x8ac060).multiplyScalar(v);
+        plantTri(m, bb.clone().sub(side), bb.clone().add(side), mid.clone().sub(side), cb, cb, cm, bb, hgt, 0.7, 0.7, 0.7, ph);
+        plantTri(m, bb.clone().add(side), mid.clone().add(side), mid.clone().sub(side), cb, cm, cm, bb, hgt, 0.7, 0.7, 0.7, ph);
+        plantTri(m, mid.clone().sub(side), mid.clone().add(side), tip, cm, cm, ct, bb, hgt, 0.7, 0.7, 0.7, ph);
+      }
+    }
+  }
+  // kelp: tall frilly ribbons rooted on the deeper shelf
+  for (let i = 0; i < 160; i++) {
+    const c = reefSpot(30, 125);
+    if (jfbm(c.x * 0.04 + 9, c.z * 0.04, 2, 3) < 0.45) continue;
+    const nS = 3 + Math.floor(rand(0, 4));
+    for (let k = 0; k < nS; k++) {
+      const x = c.x + rand(-1, 1), z = c.z + rand(-1, 1), y = bedHeightJS(x, z);
+      const h = Math.min(rand(1.8, 4.6), -y - 0.4);
+      if (h < 1) continue;
+      const ph = Math.random() * 6.28, a = rand(0, 6.28), lean = rand(0.2, 0.7);
+      const base = new THREE.Vector3(x, y, z);
+      const S = new THREE.Vector3(Math.cos(a + 1.57), 0, Math.sin(a + 1.57));
+      const SEG = 10;
+      let prev = null;
+      for (let j = 0; j <= SEG; j++) {
+        const s = j / SEG;
+        const P = new THREE.Vector3(x + Math.cos(a) * lean * s * s * h * 0.5 + Math.sin(s * 5 + ph) * 0.05 * h * s, y + h * s, z + Math.sin(a) * lean * s * s * h * 0.5);
+        const w = lerp(0.2, 0.035, s) * (0.8 + 0.4 * Math.sin(s * 14 + ph));
+        const L = P.clone().addScaledVector(S, -w), R = P.clone().addScaledVector(S, w);
+        const col = new THREE.Color(0x2c3a0c).lerp(new THREE.Color(0x9a7a1c), s * 0.9 + 0.1 * Math.sin(ph)).multiplyScalar(rand(0.9, 1.1));
+        if (prev) {
+          plantTri(m, prev.L, prev.R, L, prev.col, prev.col, col, base, h, 1, 1, 1, ph);
+          plantTri(m, prev.R, R, L, prev.col, col, col, base, h, 1, 1, 1, ph);
+        }
+        prev = { L, R, col };
+      }
+    }
+  }
+  const mesh = new THREE.Mesh(plantGeometry(m), seaMaterial(true));
+  mesh.renderOrder = 1.5;
+  mesh.frustumCulled = false;
+  scene.add(mesh);
+  return mesh;
+})();
+
+// ----- Corals: boulders with grooves, branching staghorn, tables and fans -----
+const coralMesh = (() => {
+  const list = [];
+  const PAL = [0xff8a3d, 0xff6fa3, 0xd13fa0, 0x8a4fd0, 0xf0d040, 0x2fc5b0, 0x7ab648, 0x4a7de0, 0xc9a87a, 0xe8604c];
+  const pick = () => new THREE.Color(PAL[Math.floor(Math.random() * PAL.length)]);
+  const UPV = new THREE.Vector3(0, 1, 0);
+  const place = (g, x, y, z, rotY) => {
+    g.rotateY(rotY);
+    g.translate(x, y, z);
+    return g;
+  };
+  const branch = (o, dir, len, rad, depth, color) => {
+    const end = o.clone().addScaledVector(dir, len);
+    const g = new THREE.CylinderGeometry(rad * 0.7, rad, len, 6, 1).translate(0, len / 2, 0);
+    g.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(UPV, dir)));
+    g.translate(o.x, o.y, o.z);
+    list.push({ g, color: depth === 0 ? color.clone().lerp(new THREE.Color(0xffffff), 0.35) : color });
+    if (depth > 0)
+      for (let k = 0; k < (depth > 1 ? 3 : 2); k++) {
+        const nd = dir.clone().add(new THREE.Vector3(rand(-0.7, 0.7), rand(0.1, 0.5), rand(-0.7, 0.7))).normalize();
+        branch(end, nd, len * 0.72, rad * 0.7, depth - 1, color);
+      }
+  };
+  for (let c = 0; c < 46; c++) {
+    const centre = reefSpot(9, 120);
+    if (jfbm(centre.x * 0.06, centre.z * 0.06, 3.1, 3) < 0.5) continue;
+    const base = pick();
+    const n = 3 + Math.floor(rand(0, 4));
+    for (let i = 0; i < n; i++) {
+      const x = centre.x + rand(-3, 3), z = centre.z + rand(-3, 3), y = bedHeightJS(x, z);
+      if (y > -0.5 || y < -9) continue;
+      const kind = Math.random();
+      const color = Math.random() < 0.6 ? base.clone().multiplyScalar(rand(0.85, 1.1)) : pick();
+      if (kind < 0.3) {
+        // boulder / brain coral: a lumpy dome with winding grooves
+        const g = new THREE.IcosahedronGeometry(1, 2);
+        const p = g.attributes.position;
+        const s = rand(0.25, 0.65);
+        for (let k = 0; k < p.count; k++) {
+          const px = p.getX(k), py = p.getY(k), pz = p.getZ(k);
+          const groove = 0.05 * Math.sin(px * 16 + Math.sin(pz * 9) * 2 + py * 5) * Math.sin(pz * 13 + px * 4);
+          const r = 1 + groove + 0.18 * (jnoise(px * 2 + x, py * 2, pz * 2) - 0.5);
+          p.setXYZ(k, px * r * s, Math.max(py, -0.2) * r * s * 0.75, pz * r * s);
+        }
+        g.computeVertexNormals();
+        list.push({ g: place(g, x, y + 0.02, z, 0), color: color.clone().lerp(new THREE.Color(0xb59a6a), 0.4) });
+      } else if (kind < 0.62) {
+        // staghorn: a few forking stems
+        for (let st = 0; st < 3; st++) {
+          const d = new THREE.Vector3(rand(-0.5, 0.5), 1, rand(-0.5, 0.5)).normalize();
+          branch(new THREE.Vector3(x + rand(-0.15, 0.15), y, z + rand(-0.15, 0.15)), d, rand(0.28, 0.4), 0.05, 2, color);
+        }
+      } else if (kind < 0.84) {
+        // table coral: a scalloped plate on a stem
+        const r = rand(0.35, 0.9), h = rand(0.25, 0.6);
+        const top = new THREE.CylinderGeometry(r, r * 0.85, 0.05, 16, 1);
+        const tp = top.attributes.position;
+        for (let k = 0; k < tp.count; k++) {
+          const ang = Math.atan2(tp.getZ(k), tp.getX(k));
+          const f = 1 + 0.12 * Math.sin(ang * 7) + 0.06 * jnoise(Math.cos(ang) * 3 + x, Math.sin(ang) * 3, z);
+          tp.setXYZ(k, tp.getX(k) * f, tp.getY(k) + 0.03 * Math.sin(ang * 5), tp.getZ(k) * f);
+        }
+        top.computeVertexNormals();
+        list.push({ g: place(top.translate(0, h, 0), x, y, z, 0), color });
+        list.push({ g: new THREE.CylinderGeometry(0.06, 0.1, h, 6).translate(x, y + h / 2, z), color: color.clone().multiplyScalar(0.7) });
+      } else {
+        // sea fan: a thin, rippled fan standing on edge
+        const g = new THREE.PlaneGeometry(1, 1, 10, 6);
+        const p = g.attributes.position;
+        const w = rand(0.5, 1.0);
+        for (let k = 0; k < p.count; k++) {
+          const u = p.getX(k) + 0.5, v = p.getY(k) + 0.5;
+          const fx = (u - 0.5) * w * (0.25 + 0.9 * v);
+          p.setXYZ(k, fx, v * w * 0.9, 0.06 * Math.sin(u * 20 + v * 6) + 0.05 * Math.sin(v * 3));
+        }
+        g.computeVertexNormals();
+        list.push({ g: place(g, x, y, z, rand(0, 6.28)), color: Math.random() < 0.5 ? new THREE.Color(0xa83ad0) : new THREE.Color(0xff7a2a) });
+      }
+    }
+  }
+  const mesh = new THREE.Mesh(mergeGeos(list), applyUnderwater(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }), 0));
+  mesh.renderOrder = 1.5;
+  mesh.frustumCulled = false;
+  scene.add(mesh);
+  return mesh;
+})();
+
+// ----- Schools of fish that swim together, wag their tails and scatter when you wade in -----
+const SCHOOLS = 9, PER = 22;
+const fishMesh = (() => {
+  const tri = (a, b, c) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute([...a, ...b, ...c], 3));
+    g.setAttribute("normal", new THREE.Float32BufferAttribute([1, 0, 0, 1, 0, 0, 1, 0, 0], 3));
+    return g;
+  };
+  const geo = mergeGeos([
+    { g: new THREE.SphereGeometry(1, 10, 8).scale(0.09, 0.14, 0.3).translate(0, 0, -0.04) },
+    { g: tri([0, 0, 0.2], [0, 0.14, 0.45], [0, -0.14, 0.45]) },
+    { g: tri([0, 0.12, -0.12], [0, 0.25, 0.1], [0, 0.1, 0.15]) },
+  ]);
+  const p = geo.attributes.position, col = geo.attributes.color;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    let k = y > 0.05 ? 0.72 : y < -0.05 ? 1.1 : 0.92; // darker back, pale belly
+    if (Math.sin(z * 38) > 0.55 && z > -0.2 && z < 0.2) k *= 0.6; // bands
+    if (z < -0.24 && Math.abs(x) > 0.05 && Math.abs(y) < 0.05) k = 0.08; // eye
+    col.setXYZ(i, k, k, k);
+  }
+  const phases = new Float32Array(SCHOOLS * PER).map(() => Math.random() * 6.28);
+  geo.setAttribute("aPhase", new THREE.InstancedBufferAttribute(phases, 1));
+  const mat = applyUnderwater(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }), 0.07);
+  const mesh = new THREE.InstancedMesh(geo, mat, SCHOOLS * PER);
+  const tints = [0xb5c8e8, 0xffd930, 0xff7a24, 0x2f6cff, 0xff8aa0, 0x7de8b8, 0xf2f2f2, 0xffb02e, 0x8ad0ff];
+  for (let s = 0; s < SCHOOLS; s++) for (let f = 0; f < PER; f++) mesh.setColorAt(s * PER + f, new THREE.Color(tints[s % tints.length]).multiplyScalar(rand(0.85, 1.1)));
+  mesh.renderOrder = 1.5;
+  mesh.frustumCulled = false;
+  scene.add(mesh);
+  return mesh;
+})();
+const schools = Array.from({ length: SCHOOLS }, (_, s) => {
+  let home;
+  for (let t = 0; t < 30; t++) {
+    home = reefSpot(18, 90, 1.5);
+    if (home.y < -1.3) break;
+  }
+  return {
+    home,
+    ax: rand(3, 9), az: rand(3, 9), w1: rand(0.08, 0.16) * (Math.random() < 0.5 ? -1 : 1), w2: rand(0.08, 0.16), p1: rand(0, 6.28), p2: rand(0, 6.28),
+    yBase: Math.max(home.y + 0.7, -rand(1.1, 2.4)), size: rand(0.8, 1.5),
+    fish: Array.from({ length: PER }, () => ({ off: new THREE.Vector3(rand(-1.2, 1.2), rand(-0.4, 0.4), rand(-1.6, 1.6)), ph: rand(0, 6.28) })),
+  };
+});
+const fishDummy = new THREE.Object3D();
+function updateReef(dt, t) {
+  swellAmp.value = 0.35 + 0.5 * weather.value;
+  schools.forEach((sc, si) => {
+    const a1 = sc.w1 * t + sc.p1, a2 = sc.w2 * t + sc.p2;
+    const cx = sc.home.x + sc.ax * Math.cos(a1), cz = sc.home.z + sc.az * Math.sin(a2);
+    let vx = -sc.ax * sc.w1 * Math.sin(a1), vz = sc.az * sc.w2 * Math.cos(a2);
+    const vl = Math.hypot(vx, vz) || 1;
+    vx /= vl;
+    vz /= vl;
+    const cy = sc.yBase + 0.35 * Math.sin(0.3 * t + sc.p1);
+    sc.fish.forEach((f, fi) => {
+      const wob = Math.sin(t * 1.6 + f.ph) * 0.18;
+      let x = cx + -vz * (f.off.x + wob) + vx * f.off.z * Math.cos(t * 0.2 + f.ph * 0.3);
+      let z = cz + vx * (f.off.x + wob) + vz * f.off.z * Math.cos(t * 0.2 + f.ph * 0.3);
+      let y = cy + f.off.y + Math.sin(t * 0.9 + f.ph) * 0.1;
+      // scatter from anyone wading nearby
+      const dx = x - camPos.x, dz = z - camPos.z, d = Math.hypot(dx, dz);
+      if (d < 4) {
+        const push = ((4 - d) / 4) * 2.2;
+        x += (dx / (d || 1)) * push;
+        z += (dz / (d || 1)) * push;
+      }
+      y = Math.min(y, -0.6);
+      fishDummy.position.set(x, y, z);
+      fishDummy.lookAt(x - vx - Math.sin(f.ph) * 0.15, y - 0.05 * Math.sin(t + f.ph), z - vz + Math.cos(f.ph) * 0.15); // nose forward, tail trailing
+      fishDummy.scale.setScalar(sc.size);
+      fishDummy.updateMatrix();
+      fishMesh.setMatrixAt(si * PER + fi, fishDummy.matrix);
+    });
+  });
+  fishMesh.instanceMatrix.needsUpdate = true;
+}
+
 // ===== Chinese festival lanterns =====
 // Brush-stroke wishes, painted in red ink on the paper
 function brushWish(ctx, cx, cy, size, rgba) {
@@ -2352,7 +2724,7 @@ function updateLotus(dt, t, lampsOn) {
   const drift = 0.22 + 0.55 * weather.value;
   candleMat.color.setRGB(lerp(0.75, 1.9, lampsOn), lerp(0.62, 1.1, lampsOn), lerp(0.45, 0.5, lampsOn));
   lotusGlowMat.opacity = 0.2 + 0.6 * lampsOn;
-  lotusMat.emissive.setRGB(0.25 * lampsOn, 0.1 * lampsOn, 0.1 * lampsOn);
+  lotusMat.emissive.setRGB(0.2 + 0.25 * lampsOn, 0.1 + 0.1 * lampsOn, 0.12 + 0.1 * lampsOn); // petals never go dark, even in daylight
   for (const l of lotuses) {
     l.wander += dt * 0.25;
     const toC = Math.atan2(ISL.z - l.z, ISL.x - l.x); // the tide carries them shoreward
@@ -3038,6 +3410,7 @@ function frame(now) {
 
   updateSky(dt, t, env.lampsOn);
   updateLotus(dt, t, env.lampsOn);
+  updateReef(dt, t);
   garland.update(t, env.lampsOn);
   fire.update(dt, t);
   updateLamps(env.lampsOn);
@@ -3100,7 +3473,7 @@ addEventListener("resize", () => {
 
 renderer.setAnimationLoop(frame);
 // handy for testing in a desktop browser
-window.__lt = { stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
+window.__lt = { camera, water, lotuses, seaweedMesh, fishMesh, coralMesh, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
 })();
 </script>
 </body>
