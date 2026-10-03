@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v3.3 -->
+<!-- Lantern Tide v3.4 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -16,6 +16,9 @@ canvas{display:block;touch-action:none}
 #gmenu h3{margin:0 0 6px;font-size:18px}
 #gmenu .big{font:700 34px system-ui,sans-serif;color:#ffd98a;margin-bottom:4px}
 #gmenu input[type=range]{width:100%}
+#gmenu h4{margin:14px 0 0;font-size:15px}
+#gmenu h3 span{float:right;font:700 14px system-ui,sans-serif}
+#gmenu{max-height:92vh;overflow:auto}
 #gmenu .lbl{margin:10px 0 4px;color:#8fa6a8;font-size:12px}
 #gmenu .row{display:flex;flex-wrap:wrap;gap:6px}
 #gmenu button{flex:1 1 auto;min-width:64px;padding:8px 10px;border:0;border-radius:10px;background:#26363f;color:#e6efee;font:600 14px system-ui,sans-serif;cursor:pointer}
@@ -32,7 +35,7 @@ canvas{display:block;touch-action:none}
 <button id="vr">Enter VR</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// Lantern Tide v3.3: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v3.4: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 (() => {
@@ -83,6 +86,13 @@ const shared = {
   uAurora: { value: 0 },
   uFog: { value: 0 },
   uRays: { value: 0 },
+  // performance settings (menu): how many steps the cloud march takes, whether it uses the extra detail and second light sample,
+  // how many samples the god rays take, and whether clouds cast shadows on the sea and sand
+  uCloudSteps: { value: 6 },
+  uCloudLight: { value: 1 },
+  uCloudDetail: { value: 0 },
+  uRaySteps: { value: 6 },
+  uCloudShadows: { value: 0 },
 };
 
 const SKY_GLSL = /* glsl */ `
@@ -149,6 +159,8 @@ const CLOUD_SHADOW_HEIGHT = 650;
 
 const CLOUD_GLSL = /* glsl */ `
   uniform float uCloudCover;
+  uniform float uCloudDetail;
+  uniform float uCloudShadows;
   uniform vec2 uCloudOffset;
   const float CLOUD_BOTTOM = ${CLOUD_BOTTOM.toFixed(1)};
   const float CLOUD_TOP = ${CLOUD_TOP.toFixed(1)};
@@ -188,7 +200,7 @@ const CLOUD_GLSL = /* glsl */ `
     // billowy cumulus: a low-frequency base shape, with fine detail eating into its edges
     vec3 q = vec3(xz.x * 0.0017, p.y * 0.0026, xz.y * 0.0021);
     float base = fbm3(q);
-    float detail = fbm3(q * 3.3 + vec3(13.0, 2.0, 5.0));
+    float detail = uCloudDetail > 0.5 ? fbm3(q * 3.3 + vec3(13.0, 2.0, 5.0)) : 0.55; // (the fine edge detail is the costly half)
     // flat bottoms; tops climb higher in the thick banks and round off
     float top = mix(0.4, 1.0, cov);
     float hm = smoothstep(0.0, 0.1, h) * (1.0 - smoothstep(top - 0.4, top, h));
@@ -198,6 +210,7 @@ const CLOUD_GLSL = /* glsl */ `
   }
   // 1 = full sun, lower = under a cloud
   float cloudShadow(vec3 wp, vec3 sunDir) {
+    if (uCloudShadows < 0.5) return 1.0;
     float s = max(sunDir.y, 0.08);
     vec3 p = wp + sunDir / s * (${CLOUD_SHADOW_HEIGHT.toFixed(1)} - wp.y);
     return exp(-cloudDensity(vec3(p.x, ${CLOUD_SHADOW_HEIGHT.toFixed(1)}, p.z)) * 1.5);
@@ -279,6 +292,9 @@ const sky = new THREE.Mesh(
       uniform float uLightLevel;
       uniform float uAurora;
       uniform float uRays;
+      uniform float uCloudSteps;
+      uniform float uCloudLight;
+      uniform float uRaySteps;
       varying vec3 vDir;
 
       void main() {
@@ -325,25 +341,26 @@ const sky = new THREE.Mesh(
         }
         float cloudAlpha = 0.0;
         // Volumetric clouds: raymarch through the cloud layer, lighting each sample toward the sun
-        if (d.y > 0.01) {
+        if (d.y > 0.01 && uCloudSteps > 0.5) {
           vec3 ro = cameraPosition;
           float t0 = (CLOUD_BOTTOM - ro.y) / d.y;
           float t1 = (CLOUD_TOP - ro.y) / d.y;
           float fade = (1.0 - smoothstep(5000.0, 12000.0, t0)) * smoothstep(0.01, 0.06, d.y);
           if (fade > 0.0) {
-            const int STEPS = 20;
-            float stepLen = (t1 - t0) / float(STEPS);
+            float stepLen = (t1 - t0) / uCloudSteps;
             float t = t0 + stepLen * hash(gl_FragCoord.xy);
             float trans = 1.0;
             vec3 acc = vec3(0.0);
             vec3 sunLit = mix(vec3(0.95), uSunColor * vec3(1.0, 0.75, 0.7), 0.95 * uSunset) * uLightLevel * (1.0 - 0.7 * uCloudDark);
             vec3 ambient = (mix(uHorizon, uTop, 0.5) * 0.75 + vec3(0.04) * uLightLevel + vec3(0.3, 0.09, 0.36) * uSunset * 0.35) * (1.0 - 0.5 * uCloudDark);
             float phase = 1.0 + 0.8 * pow(sd, 10.0) * uSunVis; // silver edges toward the sun
-            for (int i = 0; i < STEPS; i++) {
+            for (int i = 0; i < 20; i++) {
+              if (float(i) >= uCloudSteps) break;
               vec3 p = ro + d * t;
               float dens = cloudDensity(p);
               if (dens > 0.001) {
-                float ld = cloudDensity(p + uSunDir * 60.0) + cloudDensity(p + uSunDir * 160.0);
+                float ld = cloudDensity(p + uSunDir * 60.0);
+                if (uCloudLight > 1.5) ld += cloudDensity(p + uSunDir * 160.0);
                 float powder = 1.0 - exp(-dens * stepLen * 0.014); // thin edges catch less light than the dense middle
                 vec3 lit = sunLit * exp(-ld * 0.7) * phase * (0.6 + 0.4 * powder) + ambient;
                 lit = lit / (1.0 + 0.3 * lit);                    // soft highlights, so sunlit cloud tops don't clip to white
@@ -362,23 +379,24 @@ const sky = new THREE.Mesh(
 
         // God rays: shafts of sunlight streaming through gaps in the clouds. For each pixel, walk the sky from it
         // toward the sun and see how much of that path is open; where it is part open and part cloud, shafts show.
-        if (uRays > 0.001) {
+        if (uRays > 0.001 && uRaySteps > 0.5) {
           vec3 tgt = normalize(vec3(uSunDir.x, max(uSunDir.y, 0.03), uSunDir.z));
           float cosA = clamp(dot(d, tgt), -1.0, 1.0);
           if (cosA > 0.25) {
-            const int RS = 18;
+            float decay = pow(0.93, 18.0 / uRaySteps);
             float jit = hash(gl_FragCoord.xy + 3.1);
             float acc2 = 0.0;
             float wsum = 0.0;
             float w = 1.0;
-            for (int i = 0; i < RS; i++) {
-              float k = (float(i) + jit) / float(RS);
+            for (int i = 0; i < 18; i++) {
+              if (float(i) >= uRaySteps) break;
+              float k = (float(i) + jit) / uRaySteps;
               vec3 dk = normalize(mix(d, tgt, k));
               dk.y = max(dk.y, 0.03);
               float tm = (0.5 * (CLOUD_BOTTOM + CLOUD_TOP) - cameraPosition.y) / dk.y;
               acc2 += w * exp(-cloudDensity(cameraPosition + dk * tm) * 3.0);
               wsum += w;
-              w *= 0.93;
+              w *= decay;
             }
             acc2 /= wsum;
             float shafts = 4.0 * acc2 * (1.0 - acc2);
@@ -5377,7 +5395,40 @@ function updateProps(dt) {
   spaceTap = false;
 }
 
-// ===== The menu (X): time of day and weather =====
+// ===== Performance settings: the raymarched clouds and the god rays are the costly parts of the picture =====
+const PERF_CLOUDS = [["Off", { steps: 0, light: 1, detail: 0 }], ["Low", { steps: 6, light: 1, detail: 0 }], ["Medium", { steps: 12, light: 2, detail: 0 }], ["High", { steps: 20, light: 2, detail: 1 }]];
+const PERF_RAYS = [["Off", 0], ["Low", 6], ["Medium", 12], ["High", 18]];
+const perf = { clouds: 1, rays: 1, shadows: 0, fps: 0, ms: 0, worstMs: 0, acc: 0, n: 0, worst: 0 }; // (lower defaults: low clouds, low god rays, no cloud shadows)
+try {
+  const saved = JSON.parse(localStorage.getItem("lanternTidePerf") || "null");
+  if (saved) for (const k of ["clouds", "rays", "shadows"]) if (Number.isInteger(saved[k])) perf[k] = saved[k];
+} catch (e) {}
+function applyPerf() {
+  const c = PERF_CLOUDS[perf.clouds][1];
+  shared.uCloudSteps.value = c.steps;
+  shared.uCloudLight.value = c.light;
+  shared.uCloudDetail.value = c.detail;
+  shared.uRaySteps.value = PERF_RAYS[perf.rays][1];
+  shared.uCloudShadows.value = perf.shadows;
+  try { localStorage.setItem("lanternTidePerf", JSON.stringify({ clouds: perf.clouds, rays: perf.rays, shadows: perf.shadows })); } catch (e) {}
+}
+applyPerf();
+// a running frame-rate reading, from the real time between frames, refreshed twice a second
+function samplePerf(rawDt) {
+  perf.acc += rawDt;
+  perf.n++;
+  perf.worst = Math.max(perf.worst, rawDt);
+  if (perf.acc >= 0.5) {
+    perf.fps = perf.n / perf.acc;
+    perf.ms = (1000 * perf.acc) / perf.n;
+    perf.worstMs = perf.worst * 1000;
+    perf.acc = perf.n = perf.worst = 0;
+  }
+}
+const fpsText = () => (perf.fps ? `${Math.round(perf.fps)} fps · ${perf.ms.toFixed(1)} ms` : "measuring…");
+const fpsColor = () => (perf.fps >= 60 ? "#7ff0c8" : perf.fps >= 40 ? "#f2c230" : "#ff7a5a");
+
+// ===== The menu (X): time of day, weather and performance =====
 // In VR: press X on the left controller; a panel floats in front of you. Point a controller at it and pull the trigger
 // (drag along the bar to scrub the time). On a screen: press X.
 const menu = { open: false, sig: "" };
@@ -5414,7 +5465,7 @@ const weatherIs = (id) => (id === "random" ? !weather.locked : weather.locked &&
 const clockText = (h) => `${String(Math.floor(h) % 24).padStart(2, "0")}:${String(Math.floor((h % 1) * 60)).padStart(2, "0")}`;
 
 // ----- the panel in VR -----
-const MW = 900, MH = 620, PW = 0.9, PH = 0.62;
+const MW = 900, MH = 960, PW = 0.84, PH = (0.84 * 960) / 900;
 const menuCanvas = document.createElement("canvas");
 menuCanvas.width = MW;
 menuCanvas.height = MH;
@@ -5434,6 +5485,10 @@ const mbtns = [];
   row(TIME_SPEEDS, 322, 56, 16, (s) => (game.speed = s), (s) => game.speed === s);
   row(WEATHER_BUTTONS.slice(0, 4), 420, 56, 16, (id) => setWeatherPreset(id), weatherIs);
   row(WEATHER_BUTTONS.slice(4), 490, 56, 16, (id) => (id === "random" ? setRandomWeather() : setWeatherPreset(id)), weatherIs);
+  const q = [["Off", 0], ["Low", 1], ["Medium", 2], ["High", 3]];
+  row(q, 650, 52, 16, (i) => ((perf.clouds = i), applyPerf()), (i) => perf.clouds === i);
+  row(q, 734, 52, 16, (i) => ((perf.rays = i), applyPerf()), (i) => perf.rays === i);
+  row([["Off", 0], ["On", 1]], 818, 52, 16, (i) => ((perf.shadows = i), applyPerf()), (i) => perf.shadows === i, 60, 380);
   mbtns.push({ x: 812, y: 16, w: 72, h: 52, label: "✕", click: () => toggleMenu(false), active: () => false });
 }
 const menuLasers = [];
@@ -5489,6 +5544,19 @@ function drawMenu() {
   c.fillText("Set the time", 60, 224);
   c.fillText("How fast time passes", 60, 316);
   c.fillText("Weather", 60, 414);
+  c.fillStyle = "#e6efee";
+  c.font = "700 30px system-ui, sans-serif";
+  c.fillText("Performance", 60, 604);
+  c.fillStyle = "#8fa6a8";
+  c.font = "22px system-ui, sans-serif";
+  c.fillText("Clouds (the costliest part of the sky)", 60, 640);
+  c.fillText("God rays", 60, 724);
+  c.fillText("Clouds shade the sea and sand", 60, 808);
+  c.textAlign = "right";
+  c.fillStyle = fpsColor();
+  c.font = "700 30px system-ui, sans-serif";
+  c.fillText(fpsText(), 790, 54);
+  c.textAlign = "left";
   for (const b of mbtns) {
     const hot = menuLasers.some((l) => l.hover === b);
     const on = b.active();
@@ -5509,7 +5577,7 @@ function drawMenu() {
   }
   c.fillStyle = "#8fa6a8";
   c.font = "20px system-ui, sans-serif";
-  c.fillText("Point a controller · trigger to press · drag the bar to scrub time · X closes", 60, 592);
+  c.fillText("Point a controller · trigger to press · drag the bar to scrub time · X closes", 60, 944);
   menuTex.needsUpdate = true;
 }
 const _mo = new THREE.Vector3(), _mdv = new THREE.Vector3(), _mq = new THREE.Quaternion(), _mInv = new THREE.Matrix4();
@@ -5531,11 +5599,15 @@ function menuHit(h) {
 
 // ----- the panel on a screen -----
 const gm = $("gmenu");
-gm.innerHTML = `<h3>Time &amp; weather</h3><div class="big" id="gm-clock"></div>
+gm.innerHTML = `<h3>Time &amp; weather <span id="gm-fps"></span></h3><div class="big" id="gm-clock"></div>
 <input id="gm-slider" type="range" min="0" max="24" step="0.05">
 <div class="lbl">Set the time</div><div class="row" id="gm-presets"></div>
 <div class="lbl">How fast time passes</div><div class="row" id="gm-speed"></div>
 <div class="lbl">Weather</div><div class="row" id="gm-weather"></div>
+<h4>Performance</h4>
+<div class="lbl">Clouds (the costliest part of the sky)</div><div class="row" id="gm-clouds"></div>
+<div class="lbl">God rays</div><div class="row" id="gm-rays"></div>
+<div class="lbl">Clouds shade the sea and sand</div><div class="row" id="gm-shadows"></div>
 <div class="hint">X or Esc closes</div>`;
 const gmButtons = [];
 const addDomRow = (id, list, onClick, active) => {
@@ -5549,10 +5621,15 @@ const addDomRow = (id, list, onClick, active) => {
 };
 addDomRow("gm-presets", TIME_PRESETS, (h) => setTime(h), () => false);
 addDomRow("gm-speed", TIME_SPEEDS, (s) => (game.speed = s), (s) => game.speed === s);
+addDomRow("gm-clouds", [["Off", 0], ["Low", 1], ["Medium", 2], ["High", 3]], (i) => ((perf.clouds = i), applyPerf()), (i) => perf.clouds === i);
+addDomRow("gm-rays", [["Off", 0], ["Low", 1], ["Medium", 2], ["High", 3]], (i) => ((perf.rays = i), applyPerf()), (i) => perf.rays === i);
+addDomRow("gm-shadows", [["Off", 0], ["On", 1]], (i) => ((perf.shadows = i), applyPerf()), (i) => perf.shadows === i);
 addDomRow("gm-weather", WEATHER_BUTTONS, (id) => (id === "random" ? setRandomWeather() : setWeatherPreset(id)), weatherIs);
 $("gm-slider").oninput = (e) => setTime(+e.target.value);
 function refreshDomMenu() {
   $("gm-clock").textContent = clockText(game.hours);
+  $("gm-fps").textContent = fpsText();
+  $("gm-fps").style.color = fpsColor();
   if (document.activeElement !== $("gm-slider")) $("gm-slider").value = game.hours;
   for (const g of gmButtons) g.b.classList.toggle("on", g.active());
 }
@@ -5621,7 +5698,7 @@ function updateMenu(dt) {
     l.trigWas = trig;
     hoverSig += (l.hover ? l.hover.label : "-") + "|";
   }
-  const sig = `${Math.floor(game.hours * 60)}|${game.speed}|${weather.locked}|${weather.preset}|${hoverSig}`;
+  const sig = `${Math.floor(game.hours * 60)}|${game.speed}|${weather.locked}|${weather.preset}|${perf.clouds}${perf.rays}${perf.shadows}|${fpsText()}|${hoverSig}`;
   if (sig !== menu.sig) {
     menu.sig = sig;
     drawMenu();
@@ -5634,6 +5711,7 @@ const game = { hours: rand(0, 24), speed: 1 }; // a random time of day each visi
 let prevHours = game.hours;
 let last = performance.now();
 function frame(now) {
+  samplePerf((now - last) / 1000);
   const dt = Math.min(0.05, Math.max(0.001, (now - last) / 1000));
   last = now;
   shared.uTime.value += dt;
@@ -5727,7 +5805,7 @@ addEventListener("resize", () => {
 
 renderer.setAnimationLoop(frame);
 // handy for testing in a desktop browser
-window.__lt = { drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
+window.__lt = { perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
 })();
 </script>
 </body>

@@ -1,7 +1,14 @@
-Lantern Tide - version 3.3 (3 Oct 2026)
+Lantern Tide - version 3.4 (3 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 3.4:
+- Performance settings in the X menu, for the two costliest parts of the picture: the raymarched clouds
+  (Off / Low / Medium / High: march steps, light samples, fine edge detail) and the god rays (Off / Low / Medium / High),
+  plus whether clouds shade the sea and sand. Lower defaults now: Low clouds, Low god rays, no cloud shadows.
+  Your choices are remembered in the browser.
+- A live frame-rate and frame-time reading in the menu (green 60+, amber 40+, red below).
 
 New in 3.3:
 - A menu on X (VR: X on the left controller, point and pull the trigger; screen: X) to set the time of day
