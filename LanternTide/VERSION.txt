@@ -1,7 +1,15 @@
-Lantern Tide - version 3.4 (3 Oct 2026)
+Lantern Tide - version 3.5 (3 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 3.5:
+- Calmer, more natural sunsets and sunrises: orange is now the dominant colour (gold to orange to a soft peach, fading to blue),
+  with the deep reds and purples toned right down, in the sky, the clouds and the sun.
+- Smoother clouds and god rays. They are no longer marched for every pixel with a random start (which left grain);
+  they are drawn into a small map of the whole sky, a quarter of it per frame, and read back with a soft blur.
+  The cost no longer depends on the screen, so the quality levels are cheap: defaults are now Medium clouds and
+  Medium god rays. Low / Medium / High set the sky map size (512 / 768 / 1024 wide) and the march steps.
 
 New in 3.4:
 - Performance settings in the X menu, for the two costliest parts of the picture: the raymarched clouds
