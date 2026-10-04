@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v3.10 -->
+<!-- Lantern Tide v3.11 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -37,7 +37,7 @@ canvas{display:block;touch-action:none}
 <button id="vr">Enter VR</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// Lantern Tide v3.10: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v3.11: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 (() => {
@@ -4548,6 +4548,20 @@ const STEP_UP = 0.6;
 const SWIM_ENTER = 1.35; // water this deep (above the floor) and you swim
 const SWIM_EXIT = 1.05;
 player.vy = 0;
+player.fv = new THREE.Vector3(); // flying velocity
+const flyDir = new THREE.Vector3(), flyQ = new THREE.Quaternion(), flyTmp = new THREE.Vector3();
+// Flight, VRChat style: jump, then hold a trigger and you fly the way that controller points; let go and you fall.
+function flightDirection() {
+  flyDir.set(0, 0, 0);
+  if (renderer.xr.isPresenting) {
+    for (const h of hands) {
+      if (!h.side || !trigDown(h) || props.some((q) => q.holder === h)) continue;
+      h.ray.getWorldQuaternion(flyQ);
+      flyDir.add(flyTmp.set(0, 0, -1).applyQuaternion(flyQ));
+    }
+  } else if (keys.has("Space") && !props.some((q) => q.holder)) flyDir.copy(camDir3);
+  return flyDir.lengthSq() > 1e-4 ? flyDir.normalize() : null;
+}
 player.sv = new THREE.Vector3(); // swimming velocity from arm strokes
 const strokePrev = [null, null];
 const strokeV = new THREE.Vector3();
@@ -4610,7 +4624,7 @@ function updatePlayer(dt) {
   const surf = waveHeight(player.x, player.z, t);
   player.waterSm += (surf - player.waterSm) * (1 - Math.exp(-dt * 2.5));
   const depth = player.waterSm - floorY;
-  if (!player.swim && depth > SWIM_ENTER && player.grounded) {
+  if (!player.swim && depth > SWIM_ENTER && (player.grounded || player.y < surf - 0.3)) {
     player.swim = true;
     splash(player.x, surf, player.z, 14, 2.2);
   } else if (player.swim && depth < SWIM_EXIT) player.swim = false;
@@ -4639,6 +4653,22 @@ function updatePlayer(dt) {
       mx = (rightX * nx - camFwd.x * nz) * sp;
       mz = (rightZ * nx - camFwd.z * nz) * sp;
     }
+  }
+  let flying = false;
+  if (opts.flight && !player.swim && !player.grounded && !menu.open) {
+    const fd = flightDirection();
+    if (fd) {
+      flying = true;
+      player.fv.lerp(flyTmp.copy(fd).multiplyScalar(player.y > 200 ? 0 : 7), 1 - Math.exp(-dt * 3));
+    }
+  }
+  if (!flying) {
+    if (player.grounded || player.swim) player.fv.set(0, 0, 0);
+    else player.fv.set(player.fv.x * Math.exp(-dt * 1.2), 0, player.fv.z * Math.exp(-dt * 1.2)); // carry on a little after you let go
+  }
+  if (!player.swim && !player.grounded) {
+    mx += player.fv.x;
+    mz += player.fv.z;
   }
   if (player.swim) {
     armStrokes(dt);
@@ -4670,7 +4700,8 @@ function updatePlayer(dt) {
       player.vy = 4.8; // about 1.2 m: enough to get onto a rock
       player.grounded = false;
     }
-    player.vy -= 9.8 * dt;
+    if (flying) player.vy = player.fv.y;
+    else player.vy -= 9.8 * dt;
     let feet = player.y + player.vy * dt;
     if (feet <= here + 0.001) {
       feet = here;
@@ -5795,11 +5826,12 @@ function updateProps(dt) {
 const STAR_LEVELS = [["Dim", 0.4], ["Normal", 1], ["Bright", 1.8], ["Brilliant", 3]];
 const WAVE_LEVELS = [["Calm", 0.45], ["Normal", 1], ["High", 1.5], ["Huge", 2.1]];
 const SAND_LEVELS = [["Low", 1024], ["Medium", 1536], ["High", 2048]];
-const opts = { aurora: 1, stars: 1, waves: 1, sand: 1 };
+const opts = { aurora: 1, stars: 1, waves: 1, sand: 1, flight: 1 };
 try {
   const saved = JSON.parse(localStorage.getItem("lanternTideOpts") || "null");
   if (saved) {
     if (saved.aurora === 0 || saved.aurora === 1) opts.aurora = saved.aurora;
+    if (saved.flight === 0 || saved.flight === 1) opts.flight = saved.flight;
     for (const k of ["stars", "waves", "sand"]) if (Number.isInteger(saved[k]) && saved[k] >= 0 && saved[k] <= (k === "sand" ? 2 : 3)) opts[k] = saved[k];
   }
 } catch (e) {}
@@ -5944,7 +5976,7 @@ const MENU_TABS = ["Time & weather", "World", "Performance", "Teleport"];
 const TAB_X0 = 60, TAB_W = 176, TAB_GAP = 10;
 {
   let curTab = 0;
-  const label = (text, y, size = 22, color = "#8fa6a8") => mlabels.push({ tab: curTab, text, x: 60, y, size, color });
+  const label = (text, y, size = 22, color = "#8fa6a8", x = 60) => mlabels.push({ tab: curTab, text, x, y, size, color });
   const row = (list, y, h, gap, onClick, active, x0 = 60, total = 780) => {
     const w = (total - gap * (list.length - 1)) / list.length;
     const tab = curTab;
@@ -5965,6 +5997,8 @@ const TAB_X0 = 60, TAB_W = 176, TAB_GAP = 10;
   label("World", 160, 30, "#e6efee");
   label("Aurora (on clear nights)", 214);
   row([["Off", 0], ["On", 1]], 226, 60, 16, (i) => ((opts.aurora = i), applyOpts()), (i) => opts.aurora === i, 60, 380);
+  label("Flight: jump, then hold trigger", 214, 22, "#8fa6a8", 480);
+  row([["Off", 0], ["On", 1]], 226, 60, 16, (i) => ((opts.flight = i), applyOpts()), (i) => opts.flight === i, 480, 360);
   label("Star brightness", 326);
   row(STAR_LEVELS.map(([n], i) => [n, i]), 338, 60, 16, (i) => ((opts.stars = i), applyOpts()), (i) => opts.stars === i);
   label("Wave height", 438);
@@ -6098,6 +6132,7 @@ gm.innerHTML = `<div class="tabs" id="gm-tabs"></div>
 <div class="lbl">Weather</div><div class="row" id="gm-weather"></div></div>
 <div class="pane" data-tab="1">
 <div class="lbl">Aurora (on clear nights)</div><div class="row" id="gm-aurora"></div>
+<div class="lbl">Flight (jump, then hold the trigger and point where to fly; on a screen, hold Space in the air)</div><div class="row" id="gm-flight"></div>
 <div class="lbl">Star brightness</div><div class="row" id="gm-stars"></div>
 <div class="lbl">Wave height</div><div class="row" id="gm-waves"></div>
 <div class="lbl">Sand mark detail (changing it smooths the sand)</div><div class="row" id="gm-sand"></div>
@@ -6127,6 +6162,7 @@ MENU_TABS.forEach((name, i) => {
 });
 addDomRow("gm-tp", TELEPORTS, (f) => f(), () => false);
 addDomRow("gm-aurora", [["Off", 0], ["On", 1]], (i) => ((opts.aurora = i), applyOpts()), (i) => opts.aurora === i);
+addDomRow("gm-flight", [["Off", 0], ["On", 1]], (i) => ((opts.flight = i), applyOpts()), (i) => opts.flight === i);
 addDomRow("gm-stars", STAR_LEVELS.map(([n], i) => [n, i]), (i) => ((opts.stars = i), applyOpts()), (i) => opts.stars === i);
 addDomRow("gm-waves", WAVE_LEVELS.map(([n], i) => [n, i]), (i) => ((opts.waves = i), applyOpts()), (i) => opts.waves === i);
 addDomRow("gm-sand", SAND_LEVELS.map(([n], i) => [n, i]), (i) => ((opts.sand = i), applyOpts()), (i) => opts.sand === i);
@@ -6213,7 +6249,7 @@ function updateMenu(dt) {
     l.trigWas = trig;
     hoverSig += (l.hover ? l.hover.label : "-") + "|";
   }
-  const sig = `${menu.tab}|${Math.floor(game.hours * 60)}|${game.speed}|${weather.locked}|${weather.preset}|${perf.clouds}${perf.rays}${perf.shadows}|${opts.aurora}${opts.stars}${opts.waves}${opts.sand}|${fpsText()}|${hoverSig}`;
+  const sig = `${menu.tab}|${Math.floor(game.hours * 60)}|${game.speed}|${weather.locked}|${weather.preset}|${perf.clouds}${perf.rays}${perf.shadows}|${opts.aurora}${opts.stars}${opts.waves}${opts.sand}${opts.flight}|${fpsText()}|${hoverSig}`;
   if (sig !== menu.sig) {
     menu.sig = sig;
     drawMenu();

@@ -1,7 +1,12 @@
-Lantern Tide - version 3.10 (4 Oct 2026)
+Lantern Tide - version 3.11 (4 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 3.11:
+- Flight, VRChat style (World tab, on by default): jump (A), then hold a trigger in the air and you fly the way that controller
+  points, up to about 7 m/s; use both hands and it blends them. Let go and you carry on a little, then fall. Falling into deep water
+  drops you straight into swimming. On a screen: jump, then hold Space in the air to fly where you look.
 
 New in 3.10:
 - A Teleport tab in the X menu: Beach (start), Campfire, Lighthouse, Rocks at sea (the breakwater boulders, which you can now stand
