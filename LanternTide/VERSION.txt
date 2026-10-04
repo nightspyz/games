@@ -5,6 +5,7 @@ Everything is in index.html; three.js r128 is loaded from cdnjs.
 
 New in 6.0: A REVIEW PASS - places worth finding
 - A small log at the bottom-left shows your GPU and any shader/script errors (F2 adds fog, time and sky colour).  Screenshot it if the picture is wrong.
+  Debug toggles while it is white: Alt+1 sky, Alt+2 water, Alt+3 foam, Alt+4 land, Alt+5 far sea/planet, Alt+6 clouds off, Alt+7 fog off.
 - White-out, second attempt: below 150 m the planet shell (a sphere traced in the shader at a 150 km radius, which some GPUs cannot do
   precisely) is no longer drawn; the original flat far-ocean ring is back down there. The planet only appears when you climb.
 - The white-out, found at last: 3 launches in 10 began on a "fog day" at 90% fog, which buries the whole world in grey-white. Fog days
