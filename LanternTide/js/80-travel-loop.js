@@ -330,6 +330,14 @@ function updateSpacePlayer(dt) {
     else { const cp = Math.cos(pitch); _t1.set(0, 0, 0).addScaledVector(sp.ex, -Math.sin(yaw) * cp).addScaledVector(sp.ey, Math.sin(pitch)).addScaledVector(sp.ez, -Math.cos(yaw) * cp); }
     spRotate(_qq.setFromAxisAngle(_t1.normalize(), input.roll * dt * 1.2), !vr);
   }
+  if (Math.abs(input.pitch) > 0.02) { // pitch: forward on the stick is nose down
+    if (renderer.xr.isPresenting) { // (the sky turns about your head's right-hand side)
+      camera.getWorldQuaternion(_qq);
+      _t3.set(1, 0, 0).applyQuaternion(_qq);
+      _t1.set(0, 0, 0).addScaledVector(sp.ex, _t3.x).addScaledVector(sp.ey, _t3.y).addScaledVector(sp.ez, _t3.z).normalize();
+      spRotate(_qq.setFromAxisAngle(_t1, input.pitch * dt * 1.0), false);
+    } else pitch = clamp(pitch + input.pitch * dt * 1.0, -1.5, 1.5);
+  }
   rig.position.set(BODY_OFFSET, 0, BODY_OFFSET);
   rig.rotation.y = yaw;
   if (!renderer.xr.isPresenting) camera.rotation.set(pitch, 0, 0, "YXZ");

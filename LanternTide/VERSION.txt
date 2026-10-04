@@ -8,7 +8,7 @@ New in 7.4: NAVIGATION IN SPACE, ROLL, BIGGER LAND
 - Space HUD: your speed (with a bar against the top speed at that height), the name and distance of every world and the sun (arrows at the edge of the view when
   they are off to the side or behind), and a compass of the orbital plane: the ring is the plane all the planets circle in, the green UP arrow points out of it,
   the yellow dot is the sun. Far worlds are always at least a visible dot.
-- Roll your view in space: right stick (VR) or Q / E (desktop).
+- Roll your view in space: right stick sideways (VR) or Q / E (desktop). Pitch: right stick forward = nose down, back = nose up (VR), or F / R (desktop).
 - Stars are drawn behind the planets, and the planets hide each other correctly (nearest in front).
 - The VR menu now opens anywhere (in space the camera's near plane cut it off).
 - Waves are only heard when you are in the water or near it.

@@ -384,10 +384,10 @@ addEventListener("keyup", (e) => keys.delete(e.code));
     drag.y = e.clientY;
   });
 }
-const input = { x: 0, z: 0, turn: 0, roll: 0 };
+const input = { x: 0, z: 0, turn: 0, roll: 0, pitch: 0 };
 let runOn = false, stickWas = false; // click the left stick to switch running on and off
 function readControls(dt) {
-  input.x = input.z = input.turn = input.roll = 0;
+  input.x = input.z = input.turn = input.roll = input.pitch = 0;
   if (renderer.xr.isPresenting) {
     const L = handOf("left"), R = handOf("right");
     const la = L && L.gamepad ? L.gamepad.axes : [];
@@ -405,7 +405,11 @@ function readControls(dt) {
     const ra = R && R.gamepad ? R.gamepad.axes : [];
     const rx = ra.length >= 4 ? ra[2] : ra[0] || 0;
     if (Math.abs(rx) > DEAD && !flyingDrone) input.turn = rx;
-    if (sp.on && !flyingDrone) { input.roll = input.turn; input.turn = 0; } // (in space the right stick rolls your view instead of turning)
+    if (sp.on && !flyingDrone) { // in space the right stick rolls your view (sideways) and pitches it (forward = nose down) instead of turning
+      const ry = ra.length >= 4 ? ra[3] : ra[1] || 0;
+      input.roll = input.turn; input.turn = 0;
+      if (Math.abs(ry) > DEAD) input.pitch = ry;
+    }
     yaw -= input.turn * dt * 1.5; // smooth turning
   } else if (!controllerProp.holder && !menu.open) {
     if (keys.has("KeyW") || keys.has("ArrowUp")) input.z -= 1;
@@ -414,7 +418,8 @@ function readControls(dt) {
     if (keys.has("KeyD")) input.x += 1;
     if (keys.has("ArrowLeft")) yaw += dt * 1.6;
     if (keys.has("ArrowRight")) yaw -= dt * 1.6;
-    if (sp.on) input.roll = (keys.has("KeyE") ? 1 : 0) - (keys.has("KeyQ") ? 1 : 0); // (E and Q roll in space)
+    if (sp.on) input.roll = (keys.has("KeyE") ? 1 : 0) - (keys.has("KeyQ") ? 1 : 0); // (E and Q roll in space; R and F pitch up and down)
+    if (sp.on) input.pitch = (keys.has("KeyR") ? 1 : 0) - (keys.has("KeyF") ? 1 : 0);
   }
 }
 
