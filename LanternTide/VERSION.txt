@@ -1,7 +1,18 @@
-Lantern Tide - version 6.2 (4 Oct 2026)
+Lantern Tide - version 7.0 (4 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 7.0: A REAL SPHERE
+- The world is now a cube-sphere: six faces of 32 x 32 cells wrapped around a planet about 26.5 km in radius (166 km round), with thousands of
+  islands, rigs, wind farms and ships spread over it. Walking, sailing or flying off the edge of a face carries you onto the next (heading,
+  speed and boat turned to match); every face is ringed by open sea. You can circle the planet. The curve is the sphere's own, the same at every
+  height, and the planet seen from above is drawn from a map baked from the same functions that stream the islands (all six faces, nearest first).
+- The sun stands still; the planet turns under it once a day and you ride on it, so your sunrise and sunset depend on where you are (fly east and it
+  gets later). The Time buttons set the time where you stand. The moon orbits every 8.5 days, lit by the sun, with real phases in the sky and from space.
+- Lakes on some bigger islands, with their own water. The detailed square of sea now melts smoothly into the planet's sea as you climb.
+- "Nearest: ..." teleports search the whole planet. Clouds on the planet are 3D noise on the globe (no seams, no poles).
+- Fog days really are rare now (the morning roll was still 30%).
 
 New in 6.2: A WORLD WITHOUT EDGES
 - The world now repeats every 24 x 24 cells (about 31 km): fly or sail in any direction and there are islands, rigs, wind farms and ships

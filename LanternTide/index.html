@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v6.2 -->
+<!-- Lantern Tide v7.0 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -39,7 +39,7 @@ canvas{display:block;touch-action:none}
 <button id="vr">Enter VR</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// Lantern Tide v6.2: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v7.0: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 (() => {
@@ -76,7 +76,13 @@ THREE.ShaderChunk.project_vertex = `
   // (the program cache is keyed on the material's own patch, not on the wrapper above, which reads the same for every material)
   THREE.Material.prototype.customProgramCacheKey = function () { return this._obc ? this._obc.toString() : ""; };
 }
-const sharedCurve = { value: 1 / (2 * 150000) };
+// The planet: a cube-sphere. Six square faces (FACE_CELLS x FACE_CELLS cells each) cover it; each face is a flat chart in metres
+// (an equal-angle one: chart x = PLANET_R * a, chart z = PLANET_R * b, with a, b the angles across the face), so the game's flat
+// local world keeps working on each face while the planet itself is a true sphere of radius PLANET_R.
+const FACE_CELLS = 32, CELL_M = 1300;
+const FACE_W = FACE_CELLS * CELL_M; // one face is 41.6 km across ...
+const PLANET_R = FACE_W / (Math.PI / 2); // ... a quarter of the way round, so the planet is about 26.5 km in radius (166 km round)
+const sharedCurve = { value: 1 / (2 * PLANET_R) }; // things drop by distance squared over twice the radius: the sphere's own curve
 
 // ===== Helpers =====
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
@@ -120,6 +126,7 @@ const shared = {
   uSeaFade: { value: 0 }, // the near sea fades out as the planet below takes over
   uMoonDir: { value: new THREE.Vector3(0, -1, 0) },
   uMoonI: { value: 1 }, // the player's moon brightness setting
+  uMoonPhase: { value: 0.5 }, // how much of the moon is lit
   uSpace: { value: 0 }, // how thin the air is (0 at sea level, 1 in space)
   uIslA: { value: Array.from({ length: 9 }, () => new THREE.Vector4()) },
   uIslB: { value: Array.from({ length: 9 }, () => new THREE.Vector4()) },
@@ -162,6 +169,7 @@ const SKY_GLSL = /* glsl */ `
   uniform float uStarGain;
   uniform vec3 uMoonDir;
   uniform float uMoonI;
+  uniform float uMoonPhase;
   uniform float uSpace;
   uniform float uUnder;
   uniform vec3 uUnderCol;
@@ -389,8 +397,19 @@ const sky = new THREE.Mesh(
 
         // Moon, opposite the sun
         float md = dot(d, uMoonDir);
-        col += vec3(0.85, 0.9, 1.0) * smoothstep(0.99955, 0.9997, md) * uStars * uMoonI;
-        col += vec3(0.5, 0.6, 0.8) * pow(max(md, 0.0), 60.0) * 0.15 * uStars * uMoonI;
+        float moonVis = max(uStars, 0.35) * uMoonI * (1.0 - 0.7 * uFog);
+        if (md > 0.9985) {
+          // the moon as a lit ball: its phase is the sun's light on a sphere
+          vec3 off = (d - uMoonDir * md) / 0.0245;
+          float q = length(off);
+          if (q < 1.0) {
+            vec3 nm = normalize(off + uMoonDir * sqrt(1.0 - q * q));
+            float lit = smoothstep(-0.04, 0.12, dot(nm, uSunDir));
+            float maria = 0.8 + 0.2 * fbm(nm.xy * 5.0 + nm.z * 3.0);
+            col += vec3(0.88, 0.92, 1.0) * (0.03 + 0.97 * lit) * maria * (1.0 - smoothstep(0.93, 1.0, q)) * moonVis;
+          }
+        }
+        col += vec3(0.5, 0.6, 0.8) * pow(max(md, 0.0), 60.0) * 0.15 * (0.1 + 0.9 * uMoonPhase) * moonVis;
 
         // Sun disc and halo
         float sd = max(dot(d, uSunDir), 0.0);
@@ -636,10 +655,55 @@ const BREAK_T = 6.5; // its period, seconds
 // formula, the same in JS (for walking and for building the land) and in GLSL (for the water: depth, breakers, foam). The cells
 // round you are handed to the shaders as uniforms; each island lies wholly inside its own cell.
 const CELL = 1300, GRID_OX = -650, GRID_OZ = -840; // (the home island sits in the middle of cell 0,0)
-const WORLD_P = 24; // the world repeats every 24 cells (about 31 km): a planet you can circle, islands all the way round
-const WORLD_W = WORLD_P * CELL;
-const pmod = (n) => ((n % WORLD_P) + WORLD_P) % WORLD_P;
-const rowOff = (j) => { const cj = pmod(j); return cj === 0 ? 0 : hash3(7, cj, 70) * CELL; }; // every row of cells is shifted by its own amount, so the islands do not line up in columns
+const rowOff = (j) => (j === 0 ? 0 : hash3(7, j, 70) * CELL);
+// ----- the faces of the planet, laid out side by side on the game's flat coordinates (an "atlas"), with open sea between them -----
+// Every face has its own flat chart. Walking off the edge of one face carries you onto the next (see updateFace): the chart changes,
+// and the things you carry with you are turned to match. Cells near a face's edge hold nothing but sea, so the join is never in view of land.
+const FACES = [
+  { n: [0, 0, 1], r: [1, 0, 0] },
+  { n: [1, 0, 0], r: [0, 0, -1] },
+  { n: [0, 0, -1], r: [-1, 0, 0] },
+  { n: [-1, 0, 0], r: [0, 0, 1] },
+  { n: [0, 1, 0], r: [1, 0, 0] },
+  { n: [0, -1, 0], r: [1, 0, 0] },
+];
+for (const F of FACES) F.u = [F.r[1] * F.n[2] - F.r[2] * F.n[1], F.r[2] * F.n[0] - F.r[0] * F.n[2], F.r[0] * F.n[1] - F.r[1] * F.n[0]]; // u = r x n: chart z runs this way ("south")
+const FACE_PITCH = FACE_W + 6 * CELL;
+const FACE_C = [[0, 0], [1, 0], [-1, 0], [0, 1], [1, 1], [-1, 1]].map(([sx, sz]) => [GRID_OX + sx * FACE_PITCH, GRID_OZ + sz * FACE_PITCH]); // face 0 is home
+const FACE_LIM = FACE_W / 2 - 1.5 * CELL; // a cell must lie wholly inside this, so a band of open sea runs along every edge
+function cellFace(cx, cz) {
+  for (let f = 0; f < 6; f++) if (Math.abs(cx - FACE_C[f][0]) <= FACE_LIM && Math.abs(cz - FACE_C[f][1]) <= FACE_LIM) return f;
+  return -1;
+}
+let curFace = 0; // the face you are on
+function faceAt(x, z) { // the face whose chart this point belongs to
+  let best = 0, bd = 1e12;
+  for (let f = 0; f < 6; f++) { const d = Math.max(Math.abs(x - FACE_C[f][0]), Math.abs(z - FACE_C[f][1])); if (d < bd) (bd = d), (best = f); }
+  return best;
+}
+// the planet point (a unit vector) at chart offset (lx, lz) from the middle of face f
+function faceDir(f, lx, lz, out) {
+  const F = FACES[f], t = Math.tan(lx / PLANET_R), q = Math.tan(lz / PLANET_R);
+  return out.set(F.n[0] + t * F.r[0] + q * F.u[0], F.n[1] + t * F.r[1] + q * F.u[1], F.n[2] + t * F.r[2] + q * F.u[2]).normalize();
+}
+// the other way: which face a unit vector lies on, and where
+function dirFace(p, out) {
+  const ax = Math.abs(p.x), ay = Math.abs(p.y), az = Math.abs(p.z);
+  const f = az >= ax && az >= ay ? (p.z > 0 ? 0 : 2) : ax >= ay ? (p.x > 0 ? 1 : 3) : p.y > 0 ? 4 : 5;
+  const F = FACES[f], dn = p.x * F.n[0] + p.y * F.n[1] + p.z * F.n[2];
+  out.f = f;
+  out.lx = PLANET_R * Math.atan((p.x * F.r[0] + p.y * F.r[1] + p.z * F.r[2]) / dn);
+  out.lz = PLANET_R * Math.atan((p.x * F.u[0] + p.y * F.u[1] + p.z * F.u[2]) / dn);
+  return out;
+}
+// the local frame at a point of the planet: p up, tx east (the chart's x), tz = tx x p (the chart's z, "south")
+function faceFrame(f, lx, lz, p, tx, tz) {
+  faceDir(f, lx, lz, p);
+  const F = FACES[f];
+  tx.set(F.r[0], F.r[1], F.r[2]);
+  tx.addScaledVector(p, -tx.dot(p)).normalize();
+  tz.crossVectors(tx, p);
+} // every row of cells is shifted by its own amount, so the islands do not line up in columns
 const ISLE_NAMES = ["", "Tropical island", "Volcano", "Temple island", "Swamp", "City island", "Airport island"];
 const WORLD_SEED = (() => {
   let q = null;
@@ -649,8 +713,6 @@ const WORLD_SEED = (() => {
   for (const ch of q) h = Math.imul(h ^ ch.charCodeAt(0), 2654435761);
   return h | 0;
 })();
-const WORLD_N = 3; // the world is 7 x 7 cells (about 9 km across); past that is open sea
-const WORLD_B = { x0: GRID_OX - WORLD_N * CELL - CELL, x1: GRID_OX + (WORLD_N + 1) * CELL + CELL, z0: GRID_OZ - WORLD_N * CELL, z1: GRID_OZ + (WORLD_N + 1) * CELL };
 function hash3(i, j, k) {
   let h = Math.imul(i | 0, 374761393) ^ Math.imul(j | 0, 668265263) ^ Math.imul((k + 7) | 0, 2147483629) ^ Math.imul(WORLD_SEED, 1597334677);
   h = Math.imul(h ^ (h >>> 13), 1274126177);
@@ -665,15 +727,15 @@ function islandCell(i, j) {
   const key = (i + 4096) * 8192 + (j + 4096);
   let a = isleCache.get(key);
   if (a) return a;
-  // (the world repeats: every cell is a copy of one of WORLD_P x WORLD_P, moved over by whole periods)
-  const ci = pmod(i), cj = pmod(j), ox = ((i - ci) / WORLD_P) * WORLD_W, oz = ((j - cj) / WORLD_P) * WORLD_W;
+  const ci = i, cj = j, ox = 0, oz = 0;
   const home = i === 0 && j === 0;
-  a = { type: 0, x: 0, z: 0, r: 0, p1: 0, p2: 0, p3: 0, h: 0, feature: "", veg: 0, lob: 0.6, lobF: 0, cliffH: 0, cliffP: 0, road: false, farm: false, farmTh: 0, i, j, id: i + "," + j, seed: hash3(ci, cj, 9) };
-  if (!home) {
+  const fc = cellFace(GRID_OX + (i + 0.5) * CELL + rowOff(j), GRID_OZ + (j + 0.5) * CELL); // which face this cell is on (-1: between faces, all sea)
+  a = { type: 0, x: 0, z: 0, r: 0, p1: 0, p2: 0, p3: 0, h: 0, feature: "", veg: 0, lob: 0.6, lobF: 0, cliffH: 0, cliffP: 0, lakeR: 0, road: false, farm: false, farmTh: 0, i, j, id: i + "," + j, seed: hash3(ci, cj, 9), face: fc };
+  if (!home && fc >= 0) {
     // a size class first (islets to big islands), then what kind of island that size can be; plenty of cells are only open sea
     const sk = hash3(ci, cj, 10), rk = hash3(ci, cj, 2);
     let r = sk < 0.34 ? lerp(45, 100, rk) : sk < 0.62 ? lerp(100, 170, rk) : sk < 0.86 ? lerp(170, 250, rk) : lerp(250, 330, rk);
-    let type = ISLE_FORCED[ci + "," + cj];
+    let type = ISLE_FORCED[a.id];
     if (type) r = Math.max(r, ISLE_MINR[type] + 20 * rk);
     else if (hash3(ci, cj, 0) > 0.12 + 0.8 * smooth(0.34, 0.6, vnz((GRID_OX + (ci + 0.5) * CELL + rowOff(cj)) / 2700, (GRID_OZ + (cj + 0.5) * CELL) / 2700, 71))) type = 0; // (dense clusters, wide empty seas)
     else {
@@ -700,11 +762,12 @@ function islandCell(i, j) {
       a.road = (type === 1 || type === 2) && r >= 150 && hash3(ci, cj, 12) < 0.68;
       a.farm = (type === 1 || type === 3) && r >= 100 && hash3(ci, cj, 13) < 0.7;
       a.farmTh = hash3(ci, cj, 17) * 6.2832;
+      a.lakeR = (type === 1 || type === 3 || type === 4) && r >= 140 && hash3(ci, cj, 90) < 0.5 ? r * lerp(0.1, 0.17, hash3(ci, cj, 91)) : 0; // a lake inland on some of the bigger islands
       { const vk = hash3(ci, cj, 80); a.veg = vk < 0.4 ? 0 : vk < 0.72 ? 1 : 2; } // palms / mixed / deep broadleaf woodland
       a.h = type === 2 ? clamp(r * 0.55, 85, 185) * (0.85 + 0.3 * hash3(ci, cj, 8)) : type === 1 ? Math.min(12, r * 0.06) : ISLE_H[type];
     }
   }
-  if (!a.type && !home) {
+  if (!a.type && !home && fc >= 0) {
     // open sea, some of it with something out there: an oil rig, a wind farm, shipping
     const f = hash3(ci, cj, 30);
     a.feature = f < 0.22 ? "wind" : f < 0.44 ? "rig" : f < 0.72 ? "ship" : "";
@@ -765,6 +828,12 @@ function isleBed(a, x, z, d) {
     const wr = ty === 1 ? 7 : 12;
     const rm = (1 - smooth(wr, wr + 9, Math.abs(w))) * smooth(0.18 * R, 0.32 * R, s) * (1 - smooth(1.1 * R, 1.3 * R, s));
     h = Math.min(h, h + (-1.8 - h) * rm);
+  }
+  if (a.lakeR > 0) {
+    // a lake: a round hollow inland, cut below the waterline so the sea level fills it
+    const lx = x - (a.x + Math.cos(a.p2) * 0.3 * a.r), lz = z - (a.z + Math.sin(a.p2) * 0.3 * a.r);
+    const lm = 1 - smooth(0.62 * a.lakeR, a.lakeR, Math.hypot(lx, lz));
+    h = Math.min(h, h + (-2.2 - h) * lm);
   }
   return h;
 }
@@ -842,6 +911,11 @@ const SHORE_GLSL = /* glsl */ `
       float wr = ty < 1.5 ? 7.0 : 12.0;
       float rm = (1.0 - smoothstep(wr, wr + 9.0, abs(w))) * smoothstep(0.18 * R, 0.32 * R, s) * (1.0 - smoothstep(1.1 * R, 1.3 * R, s));
       h = min(h, h + (-1.8 - h) * rm);
+    }
+    if (C.z > 0.0) {
+      vec2 lq = q - vec2(cos(B.y), sin(B.y)) * 0.3 * A.z;
+      float lm = 1.0 - smoothstep(0.62 * C.z, C.z, length(lq));
+      h = min(h, h + (-2.2 - h) * lm);
     }
     return h;
   }
@@ -1358,7 +1432,7 @@ const water = new THREE.Mesh(
         // Sun glitter: a sharp core plus a broad sheen, and the moon's path at night
         float sd = max(dot(r, uSunDir), 0.0);
         col += uSunColor * (pow(sd, 900.0) * 8.0 + pow(sd, 90.0) * 0.35) * uSunVis * cShadow;
-        col += vec3(0.7, 0.8, 1.0) * pow(max(dot(r, uMoonDir), 0.0), 300.0) * 1.2 * uStars * uMoonI;
+        col += vec3(0.7, 0.8, 1.0) * pow(max(dot(r, uMoonDir), 0.0), 300.0) * 1.2 * uStars * uMoonI * (0.1 + 0.9 * uMoonPhase);
 
         // The night sky mirrored in the sea: stars glitter on the moving waves, the aurora lays
         // long wavering streaks of green toward you.
@@ -1400,7 +1474,8 @@ const water = new THREE.Mesh(
         vec3 fogCol = skyColor(normalize(vec3(-v.x + 1e-4, 0.0, -v.z)));
         col = mix(col, fogCol, smoothstep(uFogNear, uFogFar, dist));
 
-        float alpha = smoothstep(0.0, 0.07, depthW) * (1.0 - uSeaFade);
+        float sqd = max(abs(vWorld.x - cameraPosition.x), abs(vWorld.z - cameraPosition.z));
+        float alpha = smoothstep(0.0, 0.07, depthW) * (1.0 - uSeaFade) * (1.0 - smoothstep(${(WATER_SIZE * 0.3).toFixed(1)}, ${(WATER_SIZE * 0.455).toFixed(1)}, sqd)); // (the detailed square of sea melts into the far sea at its edge)
         gl_FragColor = vec4(col, alpha);
       }
     `,
@@ -2088,7 +2163,7 @@ const land = new THREE.Mesh(
         vec3 skyA = mix(uHorizon, uTop, 0.4);
         vec3 amb = mix(vec3(dot(skyA, vec3(0.333))), skyA, 0.55) * 0.85 + vec3(0.03, 0.04, 0.075);
         amb *= 0.6 + 0.4 * (N.y * 0.5 + 0.5);
-        vec3 moon = vec3(0.3, 0.38, 0.6) * max(dot(N, uMoonDir), 0.0) * uStars * 0.35 * uMoonI;
+        vec3 moon = vec3(0.3, 0.38, 0.6) * max(dot(N, uMoonDir), 0.0) * uStars * 0.35 * uMoonI * (0.1 + 0.9 * uMoonPhase);
         vec3 col = albedo * (uSunColor * diff * 0.95 + amb * 0.9 + moon);
         for (int i = 0; i < ${MAX_LAMPS}; i++) {
           vec3 L = uLampPos[i] - vWorld;
@@ -2694,18 +2769,35 @@ const PALETTE = {
   stormShallow: new THREE.Color(0x3c5a5a),
 };
 const tmpColor = new THREE.Color();
+// ===== The sun, the moon and the spinning planet =====
+// The sun sits still in space. The planet turns once a day under it (game.spin is how far), and you ride on it: your sky is the sun's
+// fixed direction seen from wherever you stand on the turning planet. The moon circles the planet slowly (about every eight and a half
+// days), lit by that same sun, so its phases are simply where it is in relation to the sun. Directions below are first worked out in
+// "inertial" space (the stars), then turned into your local frame (east, up, south) from your place on the planet.
+const PF = { p: new THREE.Vector3(0, 1, 0), tx: new THREE.Vector3(1, 0, 0), tz: new THREE.Vector3(0, 0, 1) }; // your local frame, in planet space
+const SUN_W = new THREE.Vector3(0, Math.sin(0.25), Math.cos(0.25)); // the sun, a little north of the equator (the planet's axis is tilted)
+const MOON_PERIOD_H = 24 * 8.5, MOON_INCL = 0.09;
+const _mi = new THREE.Vector3(), _ml = new THREE.Vector3();
+function updatePlayerFrame() { faceFrame(curFace, player.x - FACE_C[curFace][0], player.z - FACE_C[curFace][1], PF.p, PF.tx, PF.tz); }
+function inertialToLocal(v, out) {
+  const c = Math.cos(game.spin), sn = Math.sin(game.spin);
+  const px = v.x * c - v.z * sn, pz = v.x * sn + v.z * c, py = v.y; // (undo the planet's turn, then read off along your own axes)
+  return out.set(px * PF.tx.x + py * PF.tx.y + pz * PF.tx.z, px * PF.p.x + py * PF.p.y + pz * PF.p.z, px * PF.tz.x + py * PF.tz.y + pz * PF.tz.z);
+}
+function playerLon() { return Math.atan2(PF.p.x, PF.p.z); }
+const hoursFromSpin = () => ((((12 + ((playerLon() + game.spin) * 24) / (Math.PI * 2)) % 24) + 24) % 24); // local solar time where you stand
+const spinForHour = (h) => ((h - 12) / 24) * Math.PI * 2 - playerLon();
 function sunDirection(hours, out) {
-  const a = ((hours - 6) / 24) * Math.PI * 2; // 6:00 sunrise, 12:00 highest, 18:00 sunset
-  return out.set(Math.cos(a), Math.sin(a) * 0.9, 0.35).normalize();
+  return inertialToLocal(SUN_W, out).normalize();
 }
 const lastEnv = { light: 1, lightLevel: 1, lampsOn: 0 };
 function applyEnvironment(hours) {
   const sunDir = sunDirection(hours, shared.uSunDir.value);
   {
-    // the moon: opposite the sun, swinging a little to one side and back over time, so it has phases from space
-    const mt = 0.55 * Math.sin(shared.uTime.value * 0.004);
-    const px = sunDir.y, py = -sunDir.x, pl = Math.hypot(px, py) || 1;
-    shared.uMoonDir.value.set(-sunDir.x + (px / pl) * mt, -sunDir.y + (py / pl) * mt, -sunDir.z).normalize();
+    const mu = 1.2 + (game.t / MOON_PERIOD_H) * Math.PI * 2;
+    _mi.set(Math.sin(mu) * Math.cos(MOON_INCL), Math.sin(mu) * Math.sin(MOON_INCL), Math.cos(mu));
+    inertialToLocal(_mi, shared.uMoonDir.value).normalize();
+    shared.uMoonPhase.value = 0.5 * (1 - _mi.dot(SUN_W)); // the lit fraction of the moon: 0 new, 1 full
   }
   const e = sunDir.y;
   const day = smooth(0.0, 0.35, e);
@@ -2775,7 +2867,7 @@ function applyEnvironment(hours) {
   shared.uMoonI.value = opts.moonI;
   sunLight.position.copy(sunDir).multiplyScalar(100);
   moonLight.position.copy(shared.uMoonDir.value).multiplyScalar(100);
-  moonLight.intensity = 0.3 * night * (1 - wx.overcast) * opts.moonI;
+  moonLight.intensity = 0.3 * night * (1 - wx.overcast) * opts.moonI * (0.1 + 0.9 * shared.uMoonPhase.value);
   hemiLight.color.copy(horizon).lerp(top, 0.5);
   hemiLight.groundColor.copy(waterUniforms.uDeep.value).multiplyScalar(lightLevel);
   hemiLight.intensity = (0.25 + 0.45 * light) * (1 - 0.35 * wx.overcast) + flash * 1.5;
@@ -2791,7 +2883,7 @@ function applyEnvironment(hours) {
 
 function updateLighthouse(dt, lampsOn) {
   lighthouse.beams.rotation.y += dt * 0.9;
-  lighthouse.beams.visible = lampsOn > 0.02;
+  lighthouse.beams.visible = lampsOn > 0.02 && Math.hypot(camPos.x - lighthouse.group.position.x, camPos.z - lighthouse.group.position.z) < 6000;
   lighthouse.towerMat.emissiveIntensity = 1.2 * lampsOn;
   lighthouse.beams.getWorldPosition(lighthouse.beamUniforms.uLamp.value);
   lighthouse.beamUniforms.uCam.value.copy(camPos);
@@ -2823,7 +2915,7 @@ function updateIslUniforms(x, z) {
     const a = islandCell(ib[Math.floor(k / 3)] + (k % 3), j0 + Math.floor(k / 3));
     shared.uIslA.value[k].set(a.x, a.z, a.r, a.type + a.lobF * 0.5);
     shared.uIslB.value[k].set(a.p1, a.p2, a.p3, a.h);
-    shared.uIslC.value[k].set(a.cliffH, a.cliffP, 0, 0);
+    shared.uIslC.value[k].set(a.cliffH, a.cliffP, a.lakeR, 0);
   }
 }
 updateIslUniforms(ISL.x, ISL.z + ISL.r);
@@ -6479,8 +6571,12 @@ function setRandomWeather() {
   weather.fogTimer = rand(10, 30);
 }
 const setTime = (h) => {
-  game.hours = ((h % 24) + 24) % 24;
-  prevHours = game.hours;
+  // set the time of day where you stand: the planet is turned to match
+  const hh = ((h % 24) + 24) % 24;
+  updatePlayerFrame();
+  game.spin = spinForHour(hh);
+  game.hours = hh;
+  prevHours = hh;
 };
 // ----- teleport: key places on and around the island -----
 function teleportTo(x, z, lookX, lookZ) {
@@ -6501,13 +6597,13 @@ function teleportTo(x, z, lookX, lookZ) {
 }
 const DOCK_BOARD = { x: ISL.x + DOCK.nx * (DOCK.r0 + (DOCK.r1 - DOCK.r0) * 0.72), z: ISL.z + DOCK.nz * (DOCK.r0 + (DOCK.r1 - DOCK.r0) * 0.72) };
 const nearestPOI = (id) => {
-  let best = null, bd = 1e12;
-  for (const a of cellsAround(player.x, player.z, WORLD_N + 1))
-    for (const p of islandPOIs(a)) {
-      const d = Math.hypot(p.x - player.x, p.z - player.z);
-      if (p.def.id === id && d < bd) (bd = d), (best = p);
-    }
-  return best;
+  const def = POI_DEFS[id];
+  for (const a of cellsByDistance(player.x, player.z)) {
+    if (!a.type || !def.types.includes(a.type)) continue;
+    const p = islandPOIs(a).find((q) => q.def.id === id);
+    if (p) return p;
+  }
+  return null;
 };
 const TELEPORTS = [
   ["Beach (start)", () => teleportTo(ISL.x, ISL.z + ISL.r - 9, ISL.x, ISL.z + ISL.r + 20)],
@@ -6532,8 +6628,7 @@ const TELEPORTS = [
   ["End of the dock", () => teleportTo(ISL.x + DOCK.nx * (DOCK.r1 - 2), ISL.z + DOCK.nz * (DOCK.r1 - 2), ISL.x + DOCK.nx * (DOCK.r1 + 60), ISL.z + DOCK.nz * (DOCK.r1 + 60))],
   ["Board the boat", () => { teleportTo(DOCK_BOARD.x, DOCK_BOARD.z, DOCK_BOARD.x + DOCK.nx * 30, DOCK_BOARD.z + DOCK.nz * 30); boardBoat(); }],
   ...[["rig", "Nearest: oil rig"], ["wind", "Nearest: wind farm"]].map(([kind, name]) => [name, () => {
-    let best = null, bd = 1e12;
-    for (const a of cellsAround(player.x, player.z, WORLD_N + 2)) if (a.feature === kind) { const d = Math.hypot(a.x - player.x, a.z - player.z); if (d < bd) (bd = d), (best = a); }
+    const best = cellsByDistance(player.x, player.z).find((a) => a.feature === kind);
     if (!best) return flashHint("None in this world");
     const ch = loadChunkNow(best);
     if (kind === "rig") teleportTo(best.x + 8, best.z, best.x + 30, best.z + 5); // onto the rig's deck
@@ -7270,19 +7365,41 @@ function loadChunkNow(a) {
   if (c.terrain && c.terrainStep > 10) { const g = buildTerrain(c, fineStep(a)); while (!g.next().done); }
   return c;
 }
-function nearestIsland(type, fromX, fromZ) {
-  let best = null, bd = 1e12;
-  for (const a of cellsAround(fromX, fromZ, WORLD_N + 2)) {
-    if (a.type !== type) continue;
-    const d = Math.hypot(a.x - fromX, a.z - fromZ);
-    if (d < bd) (bd = d), (best = a);
+// every island and sea feature on the planet (there are a few thousand; made once)
+function planetCells() {
+  if (planetCells.list) return planetCells.list;
+  const out = [];
+  for (let f = 0; f < 6; f++) {
+    const Cx = FACE_C[f][0], Cz = FACE_C[f][1];
+    const j0 = Math.floor((Cz - FACE_W / 2 - GRID_OZ) / CELL), j1 = Math.floor((Cz + FACE_W / 2 - GRID_OZ) / CELL);
+    for (let j = j0; j <= j1; j++) {
+      const i0 = Math.floor((Cx - FACE_W / 2 - GRID_OX - rowOff(j)) / CELL), i1 = Math.floor((Cx + FACE_W / 2 - GRID_OX - rowOff(j)) / CELL);
+      for (let i = i0; i <= i1; i++) {
+        const a = islandCell(i, j);
+        if (a.face === f && (a.type || a.feature)) out.push(a);
+      }
+    }
   }
-  return best;
+  planetCells.list = out;
+  return out;
+}
+const _na = new THREE.Vector3(), _nb = new THREE.Vector3();
+// the cells on the planet nearest first (by the angle between them over the globe), starting from a point on the flat chart
+function cellsByDistance(fromX, fromZ) {
+  const f0 = faceAt(fromX, fromZ);
+  faceDir(f0, fromX - FACE_C[f0][0], fromZ - FACE_C[f0][1], _na);
+  return planetCells().map((a) => ({ a, d: Math.acos(clamp(_na.dot(faceDir(a.face, a.x - FACE_C[a.face][0], a.z - FACE_C[a.face][1], _nb)), -1, 1)) })).sort((p, q) => p.d - q.d).map((e) => e.a);
+}
+function nearestIsland(type, fromX, fromZ) {
+  for (const a of cellsByDistance(fromX, fromZ)) if (a.type === type) return a;
+  return null;
 }
 function teleportToIsland(a) {
   loadChunkNow(a);
   // a spot on the beach on the side facing you
-  const dx = player.x - a.x, dz = player.z - a.z, th = Math.atan2(dz, dx);
+  // (from another face there is no flat line to follow: come in from the side facing the middle of its face)
+  const near = faceAt(player.x, player.z) === a.face;
+  const dx = (near ? player.x : FACE_C[a.face][0]) - a.x, dz = (near ? player.z : FACE_C[a.face][1]) - a.z, th = Math.atan2(dz, dx);
   const R = isleCoastR(a, th) - 22;
   const x = a.x + Math.cos(th) * R, z = a.z + Math.sin(th) * R;
   teleportTo(x, z, a.x, a.z);
@@ -8285,6 +8402,14 @@ function* buildIslandExtras(c) {
   const a = c.a, R = mulberry(a.seed * 53 + 11);
   const cy = bedHeightJS(a.x, a.z);
   const smokeTex = dotTexture;
+  if (a.lakeR > 0) {
+    // the lake's own water, so it holds water at any distance (the detailed sea only reaches a few hundred metres)
+    const g = new THREE.CircleGeometry(a.lakeR * 0.97, 28);
+    g.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0x2f8f9a, transparent: true, opacity: 0.84, roughness: 0.12, metalness: 0.1, depthWrite: false }));
+    m.position.set(a.x + Math.cos(a.p2) * 0.3 * a.r, -0.22, a.z + Math.sin(a.p2) * 0.3 * a.r);
+    c.group.add(m);
+  }
   if (a.type === 2) {
     // a plume rising from the crater, and a red glow in the sky above it
     const sprites = [];
@@ -9232,17 +9357,15 @@ const seaLife = (() => {
 // As you rise, uCurve grows from a gentle bend (sea level) to the planet's true curvature, so the flat world wraps round a sphere.
 // The sea and the far side of the world are painted on a real sphere (a map baked from the same height function the water and land use),
 // lit by the real sun and moon, with clouds, city lights on the night side, and an atmosphere you see edge-on at the limb.
-const PLANET_R = 12000, ATMO_H = 1300; // (a thin atmosphere hugging the ground)
-const K_LOW = 1 / (2 * 150000), K_HIGH = 1 / (2 * PLANET_R);
+const ATMO_H = 1300; // (a thin atmosphere hugging the ground)
 const spaceState = { alt: 0, dark: 0, fade: 0, vis: 0, cloudFade: 0 };
 
 // ----- the map of the world, baked in the background -----
-const MAP_N = 1280;
-const MAP_X0 = GRID_OX - WORLD_W / 2, MAP_X1 = MAP_X0 + WORLD_W, MAP_Z0 = GRID_OZ - WORLD_W / 2, MAP_Z1 = MAP_Z0 + WORLD_W; // one whole period of the world
-const mapData = new Uint8Array(MAP_N * MAP_N * 4), lightData = new Uint8Array(MAP_N * MAP_N * 4);
+const MF = 640; // map pixels along one face (65 m each)
+const MAP_W = MF * 3, MAP_H = MF * 2; // the six faces side by side
+const mapData = new Uint8Array(MAP_W * MAP_H * 4), lightData = new Uint8Array(MAP_W * MAP_H * 4);
 const mkTex = (data) => {
-  const t = new THREE.DataTexture(data, MAP_N, MAP_N, THREE.RGBAFormat);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  const t = new THREE.DataTexture(data, MAP_W, MAP_H, THREE.RGBAFormat);
   t.minFilter = THREE.LinearFilter;
   t.magFilter = THREE.LinearFilter;
   t.generateMipmaps = false;
@@ -9250,24 +9373,28 @@ const mkTex = (data) => {
   return t;
 };
 const worldMapTex = mkTex(mapData), worldLightTex = mkTex(lightData);
-const mapBake = { ready: 0, gen: null };
+const mapBake = { ready: 1, gen: null, done: 0 };
+// the planet seen from far away: every face is drawn once, from the same functions the streamed islands use, nearest face first
 function* bakeWorldMap() {
-  const H = new Float32Array(MAP_N * MAP_N);
-  const dx = (MAP_X1 - MAP_X0) / MAP_N, dz = (MAP_Z1 - MAP_Z0) / MAP_N;
-  for (let j = 0; j < MAP_N; j++) {
-    for (let i = 0; i < MAP_N; i++) H[j * MAP_N + i] = bedHeightJS(MAP_X0 + (i + 0.5) * dx, MAP_Z0 + (j + 0.5) * dz);
-    if (j % 6 === 5) yield;
-  }
-  for (let j = 0; j < MAP_N; j++) {
-    for (let i = 0; i < MAP_N; i++) {
-      const k = j * MAP_N + i, x = MAP_X0 + (i + 0.5) * dx, z = MAP_Z0 + (j + 0.5) * dz, h = H[k];
-      let r = 0, g = 0, b = 0, a = 0, lr = 0, lg = 0;
-      if (h < 0) {
-        a = Math.round(255 * 0.9 * (1 - smooth(1, 6.5, -h)));
-      } else {
-        a = 255;
+  const H = new Float32Array(MF * MF);
+  const dx = FACE_W / MF;
+  const order = [0, 1, 2, 3, 4, 5].sort((p, q) => Math.hypot(FACE_C[p][0] - player.x, FACE_C[p][1] - player.z) - Math.hypot(FACE_C[q][0] - player.x, FACE_C[q][1] - player.z));
+  for (const f of order) {
+    const col0 = (f % 3) * MF, row0 = Math.floor(f / 3) * MF, X0 = FACE_C[f][0] - FACE_W / 2, Z0 = FACE_C[f][1] - FACE_W / 2;
+    for (let j = 0; j < MF; j++) {
+      for (let i = 0; i < MF; i++) H[j * MF + i] = bedHeightJS(X0 + (i + 0.5) * dx, Z0 + (j + 0.5) * dx);
+      if (j % 2 === 1) yield;
+    }
+    for (let j = 0; j < MF; j++) {
+      for (let i = 0; i < MF; i++) {
+        const k = (row0 + j) * MAP_W + col0 + i, x = X0 + (i + 0.5) * dx, z = Z0 + (j + 0.5) * dx, h = H[j * MF + i];
+        let r = 0, g = 0, b = 0, a = 0, lr = 0, lg = 0;
+        if (h < 0) {
+          a = Math.round(255 * 0.9 * (1 - smooth(1, 6.5, -h)));
+        } else {
+          a = 255;
         const isl = isleCellOf(x, z), ty = isl.type;
-        const hl = H[j * MAP_N + Math.max(0, i - 1)], hr = H[j * MAP_N + Math.min(MAP_N - 1, i + 1)], hu = H[Math.max(0, j - 1) * MAP_N + i], hd = H[Math.min(MAP_N - 1, j + 1) * MAP_N + i];
+        const hl = H[j * MF + Math.max(0, i - 1)], hr = H[j * MF + Math.min(MF - 1, i + 1)], hu = H[Math.max(0, j - 1) * MF + i], hd = H[Math.min(MF - 1, j + 1) * MF + i];
         const slope = Math.hypot(hr - hl, hd - hu) / (2 * dx);
         const n = vnz(x / 40, z / 40, 51);
         if (h < 1.3) [r, g, b] = [0.86, 0.78, 0.58];
@@ -9294,19 +9421,20 @@ function* bakeWorldMap() {
         }
         const shade = 0.9 + clamp((hl - hr + hu - hd) * 0.05, -0.25, 0.25);
         r *= shade; g *= shade; b *= shade;
+        }
+        mapData[k * 4] = clamp(r * 255, 0, 255);
+        mapData[k * 4 + 1] = clamp(g * 255, 0, 255);
+        mapData[k * 4 + 2] = clamp(b * 255, 0, 255);
+        mapData[k * 4 + 3] = a;
+        lightData[k * 4] = lr;
+        lightData[k * 4 + 1] = lg;
       }
-      mapData[k * 4] = clamp(r * 255, 0, 255);
-      mapData[k * 4 + 1] = clamp(g * 255, 0, 255);
-      mapData[k * 4 + 2] = clamp(b * 255, 0, 255);
-      mapData[k * 4 + 3] = a;
-      lightData[k * 4] = lr;
-      lightData[k * 4 + 1] = lg;
+      if (j % 2 === 1) yield;
     }
-    if (j % 6 === 5) yield;
+    worldMapTex.needsUpdate = true;
+    worldLightTex.needsUpdate = true;
+    mapBake.done++;
   }
-  worldMapTex.needsUpdate = true;
-  worldLightTex.needsUpdate = true;
-  mapBake.ready = 1;
 }
 mapBake.gen = bakeWorldMap();
 
@@ -9319,7 +9447,7 @@ spaceGroup.visible = false;
 scene.add(spaceGroup);
 const planetU = Object.assign({}, shared, {
   uC: { value: new THREE.Vector3() }, uRs: { value: 150000 }, uSun: shared.uSunDir, uMoonP: { value: new THREE.Vector3() },
-  uSub: { value: new THREE.Vector2() }, uMapB: { value: new THREE.Vector4(MAP_X0, MAP_Z0, 1 / (MAP_X1 - MAP_X0), 1 / (MAP_Z1 - MAP_Z0)) },
+  uTX: { value: new THREE.Vector3(1, 0, 0) }, uTP: { value: new THREE.Vector3(0, 1, 0) }, uTZ: { value: new THREE.Vector3(0, 0, 1) }, // the local frame (east, up, south) in planet space
   uMap: { value: worldMapTex }, uLights: { value: worldLightTex }, uTime: shared.uTime, uCover: shared.uCloudCover, uCloudOff: shared.uCloudOffset,
   uMapReady: { value: 0 }, uHorizon: shared.uHorizon, uFogNear: waterUniforms.uFogNear, uFogFar: waterUniforms.uFogFar, uSpaceCover: { value: 0.5 },
 });
@@ -9335,14 +9463,35 @@ const planet = new THREE.Mesh(
     fragmentShader: /* glsl */ `
       ${SKY_GLSL}
       ${NOISE_GLSL}
-      uniform vec3 uC; uniform float uRs; uniform vec3 uSun; uniform vec3 uMoonP; uniform vec2 uSub; uniform vec4 uMapB;
+      ${CLOUD_GLSL}
+      uniform vec3 uC; uniform float uRs; uniform vec3 uSun; uniform vec3 uMoonP; uniform vec3 uTX; uniform vec3 uTP; uniform vec3 uTZ;
       uniform sampler2D uMap; uniform sampler2D uLights; uniform float uCover; uniform vec2 uCloudOff; uniform float uMapReady;
       uniform float uFogNear; uniform float uFogFar; uniform float uSpaceCover;
       varying vec3 vW;
-      float cloudAt(vec2 pc) {
-        vec2 cp = pc * 0.00028 + uCloudOff * 0.000006 + vec2(uTime * 0.0001, 0.0);
-        float f = fbm(cp * 3.0) * 0.85 + 0.2 * vnoise(cp * 15.0);
+      // clouds drift over the whole globe: 3D noise on the direction, so there are no seams or poles
+      float cloudAt(vec3 d) {
+        vec3 q = d * 9.0 + vec3(uCloudOff.x, 0.0, uCloudOff.y) * 0.0000012 + vec3(uTime * 0.00012, 0.0, 0.0);
+        float f = fbm3(q) * 0.9 + 0.18 * noise3(q * 5.0);
         return smoothstep(0.78 - 0.5 * uSpaceCover, 1.02 - 0.3 * uSpaceCover, f);
+      }
+      // where a direction falls in the map: the six faces side by side (the same cube-sphere the world is laid out on)
+      vec2 mapUV(vec3 d) {
+        vec3 q = abs(d);
+        float f, ra, rb;
+        if (q.z >= q.x && q.z >= q.y) {
+          if (d.z > 0.0) { f = 0.0; ra = d.x / d.z; rb = -d.y / d.z; }
+          else { f = 2.0; ra = d.x / d.z; rb = d.y / d.z; }
+        } else if (q.x >= q.y) {
+          if (d.x > 0.0) { f = 1.0; ra = -d.z / d.x; rb = -d.y / d.x; }
+          else { f = 3.0; ra = d.z / -d.x; rb = d.y / d.x; }
+        } else {
+          if (d.y > 0.0) { f = 4.0; ra = d.x / d.y; rb = d.z / d.y; }
+          else { f = 5.0; ra = d.x / -d.y; rb = d.z / d.y; }
+        }
+        vec2 uv = vec2(atan(ra), atan(rb)) / 1.5707963 + 0.5;
+        uv = clamp(uv, vec2(0.5 / ${MF.toFixed(1)}), vec2(1.0 - 0.5 / ${MF.toFixed(1)}));
+        float col = mod(f, 3.0), row = floor(f / 3.0);
+        return (vec2(col, row) + uv) / vec2(3.0, 2.0);
       }
       void main() {
         vec3 ro = cameraPosition - uC;
@@ -9359,10 +9508,9 @@ const planet = new THREE.Mesh(
         vec3 haze = skyColor(normalize(vec3(rd.x + 1e-4, 0.0, rd.z))); // the same haze the far sea always faded into
         if (fog > 0.999) { gl_FragColor = vec4(haze, 1.0); return; }
         vec3 V = -rd;
-        float th = atan(length(n.xz), n.y);
-        float ph = atan(n.z, n.x);
-        vec2 pc = uSub + uRs * th * vec2(cos(ph), sin(ph));
-        vec2 uv = fract((pc - uMapB.xy) * uMapB.zw); // (the map is one period of the world, repeated all the way round)
+        vec3 dW = normalize(uTX * n.x + uTP * n.y + uTZ * n.z); // this point of the sea, in planet space
+        vec3 sunW = uTX * uSun.x + uTP * uSun.y + uTZ * uSun.z;
+        vec2 uv = mapUV(dW);
         float inside = uMapReady;
         vec4 m = texture2D(uMap, uv);
         float land = step(0.99, m.a) * inside;
@@ -9372,8 +9520,8 @@ const planet = new THREE.Mesh(
         float mu = dot(n, uSun);
         float day = smoothstep(-0.08, 0.18, mu);
         float diff = max(mu, 0.0);
-        float cl = cloudAt(pc) * (0.35 + 0.65 * day) * smoothstep(200.0, 1000.0, cameraPosition.y);
-        float csh = cloudAt(pc - vec2(uSun.x, uSun.z) * 500.0);
+        float cl = cloudAt(dW) * (0.35 + 0.65 * day) * smoothstep(200.0, 1000.0, cameraPosition.y);
+        float csh = cloudAt(normalize(dW + sunW * 0.02));
         vec3 sunC = vec3(1.0, 0.95, 0.86);
         vec3 lit = albedo * (sunC * diff * (1.0 - 0.45 * csh) + vec3(0.03, 0.05, 0.09));
         vec3 R = reflect(rd, n);
@@ -9530,10 +9678,11 @@ function updateSpace(dt) {
   spaceState.cloudFade = smooth(250, 800, alt); // the clouds lie low: climb through them and they are beneath you
   spaceState.fade = 0;
   spaceState.vis = smooth(600, 1600, alt);
-  const k = lerp(K_LOW, K_HIGH, smooth(150, 3000, alt));
-  sharedCurve.value = k;
+  const k = 1 / (2 * PLANET_R); // (the planet is one size: its curve does not change as you climb)
   shared.uSpace.value = spaceState.dark;
-  shared.uSeaFade.value = smooth(250, 1400, alt); // the near sea (a square of detailed water) gives way to the planet's own sea as you climb
+  shared.uSeaFade.value = smooth(60, 700, alt); // the near sea (a square of detailed water) gives way to the planet's own sea as you climb
+  worldRoot.visible = alt < 8000; // (high above, the baked planet map stands in for the islands)
+  water.visible = shared.uSeaFade.value < 0.995;
   const Rs = 1 / (2 * k);
   // a deeper view distance as you climb
   const far = alt > 1500 ? 900000 : 12000;
@@ -9542,14 +9691,15 @@ function updateSpace(dt) {
   // bake the map a little each frame until it is done
   if (mapBake.gen) {
     const t0 = performance.now();
-    while (performance.now() - t0 < 3) if (mapBake.gen.next().done) { mapBake.gen = null; break; }
+    const budget = alt > 150 ? 10 : 3.5; // (quicker once you are up where the planet is what you see)
+    while (performance.now() - t0 < budget) if (mapBake.gen.next().done) { mapBake.gen = null; break; }
   }
   planetU.uMapReady.value = mapBake.ready;
   // the sphere: centred under you, a little below the sea (so it never touches the water), turning beneath you as you travel
   const C = planetU.uC.value;
   C.set(camPos.x, -Rs - 3, camPos.z);
   planetU.uRs.value = Rs;
-  planetU.uSub.value.set(camPos.x, camPos.z);
+  faceFrame(curFace, player.x - FACE_C[curFace][0], player.z - FACE_C[curFace][1], planetU.uTP.value, planetU.uTX.value, planetU.uTZ.value);
   planetU.uSpaceCover.value = clamp(wx.cover + 0.2, 0, 1);
   planet.position.copy(camPos);
   planet.visible = camPos.y > 150; // (only seen from the air: at sea level the water's own fade into the haze is the horizon, and the planet's huge radius is too imprecise for some GPUs to trace)
@@ -9756,10 +9906,56 @@ addEventListener("keydown", (e) => {
   }
 });
 
+// ===== Crossing from one face of the planet to the next =====
+// Past the edge of a face the planet carries on onto its neighbour, whose chart is turned a quarter (or two) relative to this one. We
+// work out where on the sphere you are, which face that is, and how its axes sit against the old ones; then you, what you ride and
+// your speed are carried across and turned to match. It happens in open sea (every face is ringed by a band with no land).
+const _fp = new THREE.Vector3(), _fx = new THREE.Vector3(), _fz = new THREE.Vector3(), _gx = new THREE.Vector3(), _gz = new THREE.Vector3(), _gp = new THREE.Vector3(), _ft = new THREE.Vector3(), _fo = { f: 0, lx: 0, lz: 0 };
+function updateFace() {
+  const C = FACE_C[curFace], lx = player.x - C[0], lz = player.z - C[1], half = FACE_W / 2;
+  if (Math.abs(lx) <= half && Math.abs(lz) <= half) return;
+  const f = faceAt(player.x, player.z);
+  const G = FACE_C[f];
+  if (f !== curFace && Math.abs(player.x - G[0]) <= half && Math.abs(player.z - G[1]) <= half) { curFace = f; return; } // (a teleport into another face)
+  // walked or flew over the edge
+  faceFrame(curFace, lx, lz, _fp, _fx, _fz);
+  dirFace(_fp, _fo);
+  const nf = _fo.f;
+  faceFrame(nf, _fo.lx, _fo.lz, _gp, _gx, _gz);
+  const turn = (vx, vz, out) => { // a vector in the old chart, in the new
+    _ft.copy(_fx).multiplyScalar(vx).addScaledVector(_fz, vz);
+    out[0] = _ft.dot(_gx);
+    out[1] = _ft.dot(_gz);
+    return out;
+  };
+  const o = [0, 0];
+  const ox = player.x, oz = player.z;
+  const nx = FACE_C[nf][0] + _fo.lx, nz = FACE_C[nf][1] + _fo.lz;
+  turn(-Math.sin(yaw), -Math.cos(yaw), o);
+  yaw = Math.atan2(-o[0], -o[1]);
+  if (player.fv) { turn(player.fv.x, player.fv.z, o); player.fv.x = o[0]; player.fv.z = o[1]; }
+  if (player.sv) { turn(player.sv.x, player.sv.z, o); player.sv.x = o[0]; player.sv.z = o[1]; }
+  if (boatDrive.on || moor.free) {
+    turn(moor.x - ox, moor.z - oz, o);
+    moor.x = nx + o[0]; moor.z = nz + o[1];
+    turn(-Math.sin(moor.yaw), -Math.cos(moor.yaw), o);
+    moor.yaw = Math.atan2(-o[0], -o[1]);
+    moor.wx = moor.x; moor.wz = moor.z; moor.wyaw = moor.yaw;
+  }
+  player.x = nx;
+  player.z = nz;
+  curFace = nf;
+  lastFoot = null;
+  screenFade = Math.max(screenFade, 0.5);
+}
+
 // ===== Frame loop: a full day and night in eight minutes =====
 const DAY_SECONDS = 480;
-const game = { hours: rand(0, 24), speed: 1 }; // a random time of day each visit
+const game = { hours: rand(0, 24), speed: 1, spin: 0, t: 0 }; // a random time of day each visit; spin = how far the planet has turned, t = hours played
+updatePlayerFrame();
+game.spin = spinForHour(game.hours);
 let prevHours = game.hours;
+let dayIdx = 0;
 let last = performance.now();
 function frame(now) {
   samplePerf((now - last) / 1000);
@@ -9767,12 +9963,19 @@ function frame(now) {
   last = now;
   shared.uTime.value += dt;
   const t = shared.uTime.value;
-  game.hours = (game.hours + (dt * 24 * game.speed) / DAY_SECONDS) % 24;
-  if (prevHours < 5 && game.hours >= 5 && !weather.locked) {
-    weather.fogDay = Math.random() < 0.3; // each new morning may bring a fog day
-    weather.fogTimer = 0;
+  {
+    const dh = (dt * 24 * game.speed) / DAY_SECONDS;
+    game.t += dh;
+    game.spin += (dh / 24) * Math.PI * 2;
+    updatePlayerFrame();
+    game.hours = hoursFromSpin(); // (the time where you are: it moves on as you travel east)
+    const di = Math.floor(game.t / 24);
+    if (di !== dayIdx) {
+      dayIdx = di;
+      if (!weather.locked) { weather.fogDay = Math.random() < 0.05; weather.fogTimer = 0; } // each new day may bring a fog day (rarely)
+    }
+    prevHours = game.hours;
   }
-  prevHours = game.hours;
 
   updateWeather(dt);
   windU.uWind.value.set(Math.cos(weather.windAngle), Math.sin(weather.windAngle));
@@ -9783,6 +9986,7 @@ function frame(now) {
   updateBoatMoor(dt, t, env.lampsOn); // (before the player, so people aboard are carried with it)
   audio.engine(boatDrive.on ? clamp(Math.abs(moor.speed) / (BOAT_MAX0 * BOAT_SPEEDS[opts.boatSpd][1]) + 0.25 * Math.abs(boatDrive.throttle), 0, 1) : 0);
   updatePlayer(dt);
+  updateFace();
   rig.updateMatrixWorld(true);
   camera.getWorldPosition(camPos);
   {
@@ -9895,7 +10099,7 @@ addEventListener("resize", () => {
 
 renderer.setAnimationLoop(frame);
 // handy for testing in a desktop browser
-window.__lt = { setWeatherPreset, wx, mapBake, spaceState, planet, atmosphere, islandRoad, worldRoot, renderer, chunks, islandCell, nearestIsland, loadChunkNow, teleportToIsland, islandPOIs, poiSave, boatClearance, bedHeightJS, boatDrive, TELEPORTS, blocked, opts, applyOpts, rockSurfaces, rockSurfaceAt, surfaceAt, setImprintRes, camPos, perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
+window.__lt = { teleportTo, moonDir: () => shared.uMoonDir.value.toArray(), sunDirArr: () => shared.uSunDir.value.toArray(), setTime, faceInfo: () => ({ curFace, FACE_C, FACE_W, PLANET_R }), updateFace, nearestPOI, planetCells, cellsByDistance, setWeatherPreset, wx, mapBake, spaceState, planet, atmosphere, islandRoad, worldRoot, renderer, chunks, islandCell, nearestIsland, loadChunkNow, teleportToIsland, islandPOIs, poiSave, boatClearance, bedHeightJS, boatDrive, TELEPORTS, blocked, opts, applyOpts, rockSurfaces, rockSurfaceAt, surfaceAt, setImprintRes, camPos, perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
 })();
 </script>
 </body>

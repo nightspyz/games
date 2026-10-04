@@ -96,8 +96,8 @@
   <div class="facts">
     <div class="fact"><b>1 file</b><span>index.html, with three.js from a CDN. No assets, no build step.</span></div>
     <div class="fact"><b>8 min</b><span>for a full day and night. Time and weather are yours to change.</span></div>
-    <div class="fact"><b>37+1</b><span>islands in a 9 km world (plus the home island), always the same ones for a given seed.</span></div>
-    <div class="fact"><b>1 → 5.0</b><span>versions, each one a conversation turn.</span></div>
+    <div class="fact"><b>4,500+</b><span>islands and sea features spread over a round planet 166 km in circumference, always the same ones for a given seed.</span></div>
+    <div class="fact"><b>1 → 7.0</b><span>versions, each one a conversation turn.</span></div>
   </div>
 </section>
 
@@ -152,20 +152,37 @@
     <figure><img loading="lazy" src="img/cabin.jpg" alt="The fishing cabin"><figcaption><b>Fishing cabin.</b> A weathered hut with a porch lantern you can light, a drying rack, a pier and a dinghy.</figcaption></figure>
     <figure><img loading="lazy" src="img/camp.jpg" alt="The abandoned campsite"><figcaption><b>Abandoned campsite.</b> A collapsed tent, a cold fire ring to relight, log seats, and a diary.</figcaption></figure>
     <figure><img loading="lazy" src="img/shrine.jpg" alt="The forest shrine"><figcaption><b>Forest shrine.</b> A gate, stone lanterns and a mossy shrine in a clearing. Make an offering and the lanterns wake and fireflies appear.</figcaption></figure>
+    <figure><img loading="lazy" src="img/poi-lighthouse.jpg" alt="A lighthouse on a rocky shore"><figcaption><b>Lighthouse.</b> A banded tower on the rocks, with a beam that sweeps at night and a keeper's log to read.</figcaption></figure>
+    <figure><img loading="lazy" src="img/poi-wreck.jpg" alt="A shipwreck on the beach"><figcaption><b>Shipwreck.</b> Ribs, planks and a snapped mast half sunk where the sand meets the sea, with a chest and a log to search.</figcaption></figure>
+    <figure><img loading="lazy" src="img/poi-observatory.jpg" alt="An observatory on high ground"><figcaption><b>Observatory.</b> A dome on a stone terrace, a telescope to look through and a star chart with one constellation circled.</figcaption></figure>
+    <figure><img loading="lazy" src="img/poi-ruins.jpg" alt="Hidden ruins"><figcaption><b>Hidden ruins.</b> A ring of standing stones in the woods around a rune stone that wakes when you touch it.</figcaption></figure>
   </div>
+  <p>The first time you come near one, the game tells you what you found and how many places you have found so far. Each has a "Nearest:" entry in the teleport menu, and a mark on the minimap.</p>
 </section>
 
 <section id="space">
-  <h2>Up</h2>
-  <p class="sub">The world is a small planet.</p>
+  <h2>A real planet</h2>
+  <p class="sub">Since 7.0 the world is a sphere, and you ride on it.</p>
   <div class="split">
     <div>
-      <p>The whole world curves away below the horizon, very gently at sea level so islands still rise over it, and more as you climb. Fly with the trigger (jump first) at up to 7 km per second and the sky fades slowly from blue to black, the clouds fall away beneath you, and above about 10 km there is nothing but stars.</p>
-      <p>Looking down, you see your planet: islands with their shallows, clouds and their shadows, a day side and a dark side with a soft terminator, the sun's glint on the sea, lights on the night side where the cities and the airport are, and a thin atmosphere glowing blue at the edge and orange at sunset. The sun and moon are in their real places, with phases, and a few other planets are out there too.</p>
+      <p>The planet is a cube-sphere: six square faces, each 32 by 32 cells, wrapped into a globe about 26.5 km in radius. Each face is a flat map in metres, so the walking, swimming and building code you already had keeps working on it, and the planet itself is a true sphere. Walk or fly off the edge of one face and you are carried onto the next, with your heading, your speed and your boat turned to match. Every face is ringed by a band of open sea, so the join is never in view of land. You can circle the planet and come back to where you started.</p>
+      <p>The curve of the world is the sphere's own curve and no longer changes as you climb. The horizon is a few hundred metres away at the beach, islands rise over it as you approach, and from a few kilometres up you see the real globe: islands with their shallows, clouds and their shadows, a thin atmosphere glowing blue and orange at the terminator.</p>
     </div>
-    <figure><img loading="lazy" src="img/planet.jpg" alt="The planet from space"><figcaption><b>From 14 km up.</b> The island patch, clouds and the atmosphere's rim.</figcaption></figure>
+    <figure><img loading="lazy" src="img/planet-day.jpg" alt="The planet from 9 km up"><figcaption><b>From 9 km up.</b> Islands with their shallows on a round sea, under the atmosphere's rim.</figcaption></figure>
   </div>
-  <figure><img loading="lazy" src="img/planet-night.jpg" alt="The planet's night side from space"><figcaption><b>Night side.</b> Cities and the airport lit up, the terminator glowing orange.</figcaption></figure>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/horizon.jpg" alt="The curved horizon from 600 m"><figcaption><b>600 m.</b> The horizon bends away; the detailed sea melts into the planet's own.</figcaption></figure>
+    <figure><img loading="lazy" src="img/planet-dusk.jpg" alt="The terminator seen from space"><figcaption><b>The terminator.</b> A real day side and night side, with the sunset colours along the edge.</figcaption></figure>
+  </div>
+  <h3>The sun stands still; the planet turns</h3>
+  <p>The sun is fixed in space. The planet turns once a day under it, and you are on it, so your sunrise and sunset come from where you stand: fly east and the day gets later. The Time buttons set the time of day where you are. The moon circles the planet about every eight and a half days, lit by the same sun, so its phases are just where it is relative to the sun, and you can see them from the ground and from space.</p>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/moon.jpg" alt="A crescent moon in the night sky"><figcaption><b>The moon,</b> drawn as a lit ball, here a waning crescent.</figcaption></figure>
+    <figure><img loading="lazy" src="img/planet-far.jpg" alt="The whole planet from 70 km"><figcaption><b>70 km up.</b> The whole globe. Fly with the trigger at up to 7 km per second and the sky is black by 1.6 km.</figcaption></figure>
+  </div>
+  <h3>Lakes</h3>
+  <p>Some of the bigger islands now have a lake, cut into the land below the waterline, with its own water so it holds at any distance.</p>
+  <figure><img loading="lazy" src="img/lake.jpg" alt="An island with a lake"><figcaption><b>A lake inland</b> on a tropical island.</figcaption></figure>
 </section>
 
 <section id="controls">
@@ -205,6 +222,8 @@
     <div class="step"><span class="ver">4.0</span><div class="ask">“i want to expand the world a lot, generate random islands and points of interest … in chunks … make the world curve”</div><p>The streamed island world, volcano, temple, swamp and city islands, three hand-made places, a minimap, and a planned structure for adding more places (see <code>WORLD_DESIGN.md</code>).</p></div>
     <div class="step"><span class="ver">4.1 – 4.2</span><div class="ask">“add more things from coastline: the ships, the airplanes, the birds, the oil rigs and windmills … roads and cars … farming fields … cliffs”</div><p>Ships, an oil rig, wind turbines, gulls, planes and an airport island, roads with power lines and cars, farmland and sea cliffs. Buildings were fixed to be solid, and roads were settled onto the landscape.</p></div>
     <div class="step"><span class="ver">5.0</span><div class="ask">“make the entire world a sphere like a planet … fly up to space … the sky fade from blue to black slowly”</div><p>The world became a planet: a curve applied to everything, a ray-traced sphere standing in for the far sea, a baked map of the islands for the view from space, an atmosphere, sun, moon, stars and neighbours. Flight became much faster.</p></div>
+    <div class="step"><span class="ver">5.1 – 6.2</span><div class="ask">“fix the exposure, everything looks blown out white … the lanterns and lotus should be off by default … four more places: lighthouse, shipwreck, observatory, ruins … a world without edges”</div><p>A white-out that only some graphics cards showed was found by bisecting with switches: the curved-world patch applied to sprites broke Direct3D 11 on NVIDIA cards, so sprites are no longer bent. The review pass added four authored places, discovery messages, richer terrain and vegetation, a calmer minimap, safer diving, and a sky that goes black sooner.</p></div>
+    <div class="step"><span class="ver">7.0</span><div class="ask">“I want this to be a real sphere … the sun shouldn't move, the planet itself should rotate and I'm on it”</div><p>The world became a cube-sphere of six faces joined at the edges, with one planet size at every height, a map of the whole planet baked from the same functions that stream the islands, lakes, a spinning planet under a fixed sun, and a moon with phases.</p></div>
   </div>
   <div class="callout">
     <p><b>A note on what was tested.</b> Everything was checked in a headless desktop browser with software rendering, at about one frame per second, using scripted visits and screenshots. Frame rate on a real Quest 3 is untested, and the scene is heavy (the sea is drawn twice, and the base reef and sky were already costly). If it stutters, the Performance tab is the first place to look. The screenshots on this page were captured the same way.</p>
@@ -220,7 +239,7 @@
   <p>A cell's hash decides its island, so revisiting a place can never change it. The shaders get the nine cells round the camera as uniforms, and need no geometry to know where land is.</p>
   <h3>A budget for building</h3>
   <p>Islands are built in generators that run for a few milliseconds a frame, nearest first: coarse land, cheap instanced trees, then detail as you approach. Places of interest have three levels: a name, a simple silhouette, and a full scene with props, lights and things to use.</p>
-  <h3>A curved world</h3>
+  <h3>A curved world, and a round one</h3>
   <p>One line in three.js's shared vertex-projection chunk drops every vertex by distance squared, so every material bends with the world. The far sea is a sphere traced in a shader with the same curvature, and a map of all the islands, baked in the background from the same height formula, paints it from space.</p>
   <h3>Smooth skies</h3>
   <p>Clouds and god rays are marched into a small map of the whole sky, a quarter of it per frame, then blurred when read back. That is what removed the grain and made it affordable.</p>
