@@ -1,7 +1,15 @@
-Lantern Tide - version 6.1 (4 Oct 2026)
+Lantern Tide - version 6.2 (4 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 6.2: A WORLD WITHOUT EDGES
+- The world now repeats every 24 x 24 cells (about 31 km): fly or sail in any direction and there are islands, rigs, wind farms and ships
+  all the way round, with no edge of the world. The planet seen from space shows the whole repeating world, and the minimap has no border.
+- Coming down from space no longer shows one square of water: the detailed sea fades into the planet's own sea as you climb.
+- Space is closer still: the sky is black by 1.6 km, stars from 600 m, the atmosphere glow from 500 m, and the sky clouds are gone once you are up there.
+- Flying into the sea no longer takes you to the seabed: you stop at the surface and swim, depth is capped at 5 m, and a jump at the surface springs you out
+  of the water so you can fly again. Flight speed near the sea is gentle.
 
 New in 6.1: fixes the white-out on NVIDIA cards (Direct3D 11): the 5.0 change that bent sprites with the planet's curve is gone.
   Everything in 6.0 below is included; the debug log and toggles from the test builds are removed.
