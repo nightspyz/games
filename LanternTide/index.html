@@ -106,7 +106,7 @@ const errLog = (() => {
   for (const k of ["error", "warn"]) { const f = console[k]; console[k] = function () { try { add(k + ": " + [...arguments].map((x) => (x && x.message) || x).join(" ")); } catch (e) {} return f.apply(this, arguments); }; }
   addEventListener("error", (e) => add("error: " + e.message + " @" + e.lineno));
   const gl = renderer.getContext();
-  const info = "GPU " + (() => { try { const x = gl.getExtension("WEBGL_debug_renderer_info"); return gl.getParameter(x.UNMASKED_RENDERER_WEBGL); } catch (e) { return "?"; } })() + " | prec " + renderer.capabilities.precision + " | tex " + renderer.capabilities.maxTextures + " | fragU " + gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS) + " | varyings " + gl.getParameter(gl.MAX_VARYING_VECTORS);
+  const info = "API WebGL" + (renderer.capabilities.isWebGL2 ? "2" : "1") + " | GPU " + (() => { try { const x = gl.getExtension("WEBGL_debug_renderer_info"); return gl.getParameter(x.UNMASKED_RENDERER_WEBGL); } catch (e) { return "?"; } })() + " | prec " + renderer.capabilities.precision + " | tex " + renderer.capabilities.maxTextures + " | fragU " + gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS) + " | varyings " + gl.getParameter(gl.MAX_VARYING_VECTORS);
   addEventListener("keydown", (e) => { if (e.code === "F2") add(info + " | " + (window.__ltDbg ? window.__ltDbg() : "")); });
   add(info);
   return add;
