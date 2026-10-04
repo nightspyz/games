@@ -8,7 +8,9 @@ New in 6.0: A REVIEW PASS - places worth finding
 - A small log at the bottom-left shows your GPU and any shader/script errors (F2 adds fog, time and sky colour).  Screenshot it if the picture is wrong.
   Open index.html?no=pv to run without the 5.0 curved-world patch on ordinary objects (?no=pvv: only the vertex part, ?no=pvs: only sprites).
   Debug toggles while it is white: Alt+1 sky, Alt+2 water, Alt+3 foam, Alt+4 land, Alt+5 far sea/planet, Alt+6 clouds off, Alt+7 fog off, Alt+8 world curve off, Alt+9 sky-thinning off.
-- White-out, second attempt: below 150 m the planet shell (a sphere traced in the shader at a 150 km radius, which some GPUs cannot do
+- WHITE-OUT FIXED (NVIDIA / Direct3D 11): the 5.0 change that bent sprites (glows, flares) with the planet's curve made the whole picture white on
+  some cards. Sprites are no longer bent. (The corner log only appears when there is an error; F2 shows GPU info. Alt+1..9 are debug toggles.)
+- White-out, earlier attempt: below 150 m the planet shell (a sphere traced in the shader at a 150 km radius, which some GPUs cannot do
   precisely) is no longer drawn; the original flat far-ocean ring is back down there. The planet only appears when you climb.
 - The white-out, found at last: 3 launches in 10 began on a "fog day" at 90% fog, which buries the whole world in grey-white. Fog days
   are now rare (1 in 20), start thin, and even at full strength you can see ~400 m. The Fog preset is softer too.

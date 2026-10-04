@@ -61,10 +61,7 @@ if (!noFlag("pv") && !noFlag("pvv")) THREE.ShaderChunk.project_vertex = `
   { vec4 wpc = modelMatrix * mvPosition; vec2 cdc = wpc.xz - cameraPosition.xz; wpc.y -= dot(cdc, cdc) * uCurve; mvPosition = viewMatrix * wpc; }
   gl_Position = projectionMatrix * mvPosition;
 `;
-if (!noFlag("pv") && !noFlag("pvs")) THREE.ShaderLib.sprite.vertexShader = THREE.ShaderLib.sprite.vertexShader.replace(
-  "vec4 mvPosition = modelViewMatrix * vec4( 0.0, 0.0, 0.0, 1.0 );",
-  "vec4 mvPosition; { vec4 wps = modelMatrix * vec4( 0.0, 0.0, 0.0, 1.0 ); vec2 cds = wps.xz - cameraPosition.xz; wps.y -= dot(cds, cds) * uCurve; mvPosition = viewMatrix * wps; }"
-);
+// (sprites are left as three.js makes them: bending their vertex shader whited out the picture on NVIDIA cards under Direct3D 11, and the sun and moon sprites in space must not be bent)
 // every material gets the shared uCurve uniform, whatever else its own onBeforeCompile does
 {
   Object.defineProperty(THREE.Material.prototype, "onBeforeCompile", {
@@ -114,7 +111,6 @@ const errLog = (() => {
   const gl = renderer.getContext();
   const info = "API WebGL" + (renderer.capabilities.isWebGL2 ? "2" : "1") + " | GPU " + (() => { try { const x = gl.getExtension("WEBGL_debug_renderer_info"); return gl.getParameter(x.UNMASKED_RENDERER_WEBGL); } catch (e) { return "?"; } })() + " | prec " + renderer.capabilities.precision + " | tex " + renderer.capabilities.maxTextures + " | fragU " + gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS) + " | varyings " + gl.getParameter(gl.MAX_VARYING_VECTORS);
   addEventListener("keydown", (e) => { if (e.code === "F2") add(info + " | " + (window.__ltDbg ? window.__ltDbg() : "")); });
-  add(info);
   return add;
 })();
 
