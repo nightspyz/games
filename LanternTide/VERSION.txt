@@ -1,7 +1,12 @@
-Lantern Tide - version 3.6 (3 Oct 2026)
+Lantern Tide - version 3.7 (4 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 3.7:
+- Swim with your arms: in deep water hold a trigger and sweep that hand through the water (pull it back, down or sideways);
+  the water pushes you the opposite way. Use both hands for stronger strokes; you glide and slow between strokes, and your
+  controllers buzz with each pull. The stick still swims too.
 
 New in 3.6:
 - The X menu now has three tabs: Time & weather, World, Performance.

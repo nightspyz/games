@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v3.6 -->
+<!-- Lantern Tide v3.7 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -37,7 +37,7 @@ canvas{display:block;touch-action:none}
 <button id="vr">Enter VR</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// Lantern Tide v3.6: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v3.7: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 (() => {
@@ -4545,6 +4545,29 @@ const STEP_UP = 0.6;
 const SWIM_ENTER = 1.35; // water this deep (above the floor) and you swim
 const SWIM_EXIT = 1.05;
 player.vy = 0;
+player.sv = new THREE.Vector3(); // swimming velocity from arm strokes
+const strokePrev = [null, null];
+const strokeV = new THREE.Vector3();
+// Swimming with your arms: hold a trigger and sweep that hand through the water; the water pushes you the other way.
+function armStrokes(dt) {
+  let any = false;
+  hands.forEach((h, i) => {
+    const p = h.grip.position;
+    const prev = strokePrev[i] || (strokePrev[i] = new THREE.Vector3().copy(p));
+    strokeV.copy(p).sub(prev).divideScalar(Math.max(dt, 1e-3)); // the hand's velocity relative to your body
+    prev.copy(p);
+    if (!renderer.xr.isPresenting || !h.side || !trigDown(h) || props.some((q) => q.holder === h) || menu.open) return;
+    const sp = strokeV.length();
+    if (sp < 0.3) return;
+    strokeV.applyQuaternion(rig.quaternion).multiplyScalar((-0.9 * Math.min(sp, 3)) / sp); // pushing the water back moves you forward
+    player.sv.addScaledVector(strokeV, Math.min(1, dt * 6));
+    any = true;
+    buzz(h, Math.min(0.6, sp * 0.2), 20);
+  });
+  const m = player.sv.length();
+  if (m > 3) player.sv.multiplyScalar(3 / m);
+  player.sv.multiplyScalar(Math.exp(-dt * (any ? 0.8 : 1.3))); // the water slows you down between strokes
+}
 player.swim = false;
 player.grounded = true;
 player.under = false;
@@ -4614,6 +4637,12 @@ function updatePlayer(dt) {
       mz = (rightZ * nx - camFwd.z * nz) * sp;
     }
   }
+  if (player.swim) {
+    armStrokes(dt);
+    mx += player.sv.x;
+    mz += player.sv.z;
+    my += player.sv.y * 0.8;
+  } else player.sv.set(0, 0, 0);
   const dx = mx * dt, dz = mz * dt;
   // slide along walls, rocks and the edge of things instead of stopping dead
   if (!blocked(player.x + dx, player.z + dz)) (player.x += dx), (player.z += dz);
