@@ -134,6 +134,7 @@ const shared = {
   uCurve: sharedCurve, // the world's curve: things drop by distance squared times this
   uSeaFade: { value: 0 }, // the near sea fades out as the planet below takes over
   uMoonDir: { value: new THREE.Vector3(0, -1, 0) },
+  uMoonI: { value: 1 }, // the player's moon brightness setting
   uSpace: { value: 0 }, // how thin the air is (0 at sea level, 1 in space)
   uIslA: { value: Array.from({ length: 9 }, () => new THREE.Vector4()) },
   uIslB: { value: Array.from({ length: 9 }, () => new THREE.Vector4()) },
@@ -175,6 +176,7 @@ const SKY_GLSL = /* glsl */ `
   uniform float uStars;
   uniform float uStarGain;
   uniform vec3 uMoonDir;
+  uniform float uMoonI;
   uniform float uSpace;
   uniform float uUnder;
   uniform vec3 uUnderCol;
@@ -402,8 +404,8 @@ const sky = new THREE.Mesh(
 
         // Moon, opposite the sun
         float md = dot(d, uMoonDir);
-        col += vec3(0.85, 0.9, 1.0) * smoothstep(0.99955, 0.9997, md) * uStars;
-        col += vec3(0.5, 0.6, 0.8) * pow(max(md, 0.0), 60.0) * 0.15 * uStars;
+        col += vec3(0.85, 0.9, 1.0) * smoothstep(0.99955, 0.9997, md) * uStars * uMoonI;
+        col += vec3(0.5, 0.6, 0.8) * pow(max(md, 0.0), 60.0) * 0.15 * uStars * uMoonI;
 
         // Sun disc and halo
         float sd = max(dot(d, uSunDir), 0.0);
@@ -1364,7 +1366,7 @@ const water = new THREE.Mesh(
         // Sun glitter: a sharp core plus a broad sheen, and the moon's path at night
         float sd = max(dot(r, uSunDir), 0.0);
         col += uSunColor * (pow(sd, 900.0) * 8.0 + pow(sd, 90.0) * 0.35) * uSunVis * cShadow;
-        col += vec3(0.7, 0.8, 1.0) * pow(max(dot(r, uMoonDir), 0.0), 300.0) * 1.2 * uStars;
+        col += vec3(0.7, 0.8, 1.0) * pow(max(dot(r, uMoonDir), 0.0), 300.0) * 1.2 * uStars * uMoonI;
 
         // The night sky mirrored in the sea: stars glitter on the moving waves, the aurora lays
         // long wavering streaks of green toward you.
@@ -2094,7 +2096,7 @@ const land = new THREE.Mesh(
         vec3 skyA = mix(uHorizon, uTop, 0.4);
         vec3 amb = mix(vec3(dot(skyA, vec3(0.333))), skyA, 0.55) * 0.85 + vec3(0.03, 0.04, 0.075);
         amb *= 0.6 + 0.4 * (N.y * 0.5 + 0.5);
-        vec3 moon = vec3(0.3, 0.38, 0.6) * max(dot(N, uMoonDir), 0.0) * uStars * 0.35;
+        vec3 moon = vec3(0.3, 0.38, 0.6) * max(dot(N, uMoonDir), 0.0) * uStars * 0.35 * uMoonI;
         vec3 col = albedo * (uSunColor * diff * 0.95 + amb * 0.9 + moon);
         for (int i = 0; i < ${MAX_LAMPS}; i++) {
           vec3 L = uLampPos[i] - vWorld;
@@ -2776,10 +2778,12 @@ function applyEnvironment(hours) {
 
   sunLight.color.copy(shared.uSunColor.value);
   sunLight.intensity = 1.1 * smooth(-0.02, 0.2, e) * (1 - 0.75 * wx.overcast);
-  sunLight.intensity *= cloudShadowJS(player.x, 0, player.z, sunDir, wx.cover, weather.cloudOffset);
+  sunLight.intensity *= cloudShadowJS(player.x, 0, player.z, sunDir, wx.cover, weather.cloudOffset) * opts.sunI;
+  shared.uSunColor.value.multiplyScalar(opts.sunI);
+  shared.uMoonI.value = opts.moonI;
   sunLight.position.copy(sunDir).multiplyScalar(100);
   moonLight.position.copy(shared.uMoonDir.value).multiplyScalar(100);
-  moonLight.intensity = 0.3 * night * (1 - wx.overcast);
+  moonLight.intensity = 0.3 * night * (1 - wx.overcast) * opts.moonI;
   hemiLight.color.copy(horizon).lerp(top, 0.5);
   hemiLight.groundColor.copy(waterUniforms.uDeep.value).multiplyScalar(lightLevel);
   hemiLight.intensity = (0.25 + 0.45 * light) * (1 - 0.35 * wx.overcast) + flash * 1.5;
@@ -6375,11 +6379,12 @@ const WAVE_LEVELS = [["Calm", 0.45], ["Normal", 1], ["High", 1.5], ["Huge", 2.1]
 const SAND_LEVELS = [["Low", 1024], ["Medium", 1536], ["High", 2048]];
 const FLIGHT_SPEEDS = [["Slow", 25], ["Normal", 90], ["Fast", 350], ["Rocket", 1800], ["Warp", 7000]]; // metres per second
 const BOAT_SPEEDS = [["Slow", 0.55], ["Normal", 1], ["Fast", 1.7]];
-const opts = { aurora: 1, stars: 1, waves: 1, sand: 1, flight: 1, map: 2, flightSpd: 1, boatSpd: 1, festival: 0 };
+const opts = { sunI: 1, moonI: 1, aurora: 1, stars: 1, waves: 1, sand: 1, flight: 1, map: 2, flightSpd: 1, boatSpd: 1, festival: 0 };
 try {
   const saved = JSON.parse(localStorage.getItem("lanternTideOpts") || "null");
   if (saved) {
     if (saved.aurora === 0 || saved.aurora === 1) opts.aurora = saved.aurora;
+    for (const k of ["sunI", "moonI"]) if (typeof saved[k] === "number" && saved[k] >= 0 && saved[k] <= 2) opts[k] = saved[k];
     if (saved.flight === 0 || saved.flight === 1) opts.flight = saved.flight;
     if (saved.festival === 0 || saved.festival === 1) opts.festival = saved.festival;
     for (const k of ["stars", "waves", "sand", "map", "flightSpd", "boatSpd"]) if (Number.isInteger(saved[k]) && saved[k] >= 0 && saved[k] <= (k === "sand" || k === "boatSpd" ? 2 : k === "flightSpd" ? 4 : 3)) opts[k] = saved[k];
@@ -6733,6 +6738,8 @@ gm.innerHTML = `<div class="tabs" id="gm-tabs"></div>
 <div class="lbl">How fast time passes</div><div class="row" id="gm-speed"></div>
 <div class="lbl">Weather</div><div class="row" id="gm-weather"></div></div>
 <div class="pane" data-tab="1">
+<div class="lbl">Sun brightness <span id="gm-sunv"></span></div><input id="gm-sun" type="range" min="0" max="2" step="0.05">
+<div class="lbl">Moon brightness <span id="gm-moonv"></span></div><input id="gm-moon" type="range" min="0" max="2" step="0.05">
 <div class="lbl">Aurora (on clear nights)</div><div class="row" id="gm-aurora"></div>
 <div class="lbl">Star brightness</div><div class="row" id="gm-stars"></div>
 <div class="lbl">Wave height</div><div class="row" id="gm-waves"></div>
@@ -6786,6 +6793,11 @@ addDomRow("gm-rays", [["Off", 0], ["Low", 1], ["Medium", 2], ["High", 3]], (i) =
 addDomRow("gm-shadows", [["Off", 0], ["On", 1]], (i) => ((perf.shadows = i), applyPerf()), (i) => perf.shadows === i);
 addDomRow("gm-weather", WEATHER_BUTTONS, (id) => (id === "random" ? setRandomWeather() : setWeatherPreset(id)), weatherIs);
 $("gm-slider").oninput = (e) => setTime(+e.target.value);
+for (const [id, k] of [["gm-sun", "sunI"], ["gm-moon", "moonI"]]) {
+  $(id).value = opts[k];
+  $(id + "v").textContent = Math.round(opts[k] * 100) + "%";
+  $(id).oninput = (e) => { opts[k] = +e.target.value; $(id + "v").textContent = Math.round(opts[k] * 100) + "%"; applyOpts(); };
+}
 function refreshDomMenu() {
   $("gm-clock").textContent = clockText(game.hours);
   $("gm-fps").textContent = fpsText();

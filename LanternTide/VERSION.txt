@@ -4,6 +4,7 @@ Host this folder on any https address and open index.html in the Quest browser (
 Everything is in index.html; three.js r128 is loaded from cdnjs.
 
 New in 6.0: A REVIEW PASS - places worth finding
+- Sun brightness and Moon brightness sliders (0-200%) in the menu (World tab), saved between visits.
 - A small log at the bottom-left shows your GPU and any shader/script errors (F2 adds fog, time and sky colour).  Screenshot it if the picture is wrong.
   Debug toggles while it is white: Alt+1 sky, Alt+2 water, Alt+3 foam, Alt+4 land, Alt+5 far sea/planet, Alt+6 clouds off, Alt+7 fog off, Alt+8 world curve off, Alt+9 sky-thinning off.
 - White-out, second attempt: below 150 m the planet shell (a sphere traced in the shader at a 150 km radius, which some GPUs cannot do
