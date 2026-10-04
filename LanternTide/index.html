@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v5.1 -->
+<!-- Lantern Tide v6.0 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -12,7 +12,7 @@ canvas{display:block;touch-action:none}
 #vr{z-index:10;position:fixed;bottom:18px;left:50%;transform:translateX(-50%);font:inherit;font-weight:600;color:#f2f7f6;background:rgba(6,24,34,.55);border:1px solid #ffffff33;border-radius:999px;padding:10px 22px;cursor:pointer;backdrop-filter:blur(6px)}
 #pip{position:fixed;right:16px;bottom:70px;width:30vw;max-width:380px;aspect-ratio:5/3;border:2px solid #ffffff88;border-radius:10px;pointer-events:none;box-shadow:0 2px 14px #0008}
 #pip div{position:absolute;left:0;right:0;top:100%;margin-top:6px;padding:4px 8px;border-radius:8px;font:600 12px system-ui,sans-serif;color:#fff;background:#0a1820cc}
-#minimap{position:fixed;right:12px;bottom:12px;width:190px;height:190px;border-radius:50%;box-shadow:0 2px 16px #0008;pointer-events:none;z-index:5}
+#minimap{position:fixed;right:max(28px,4.5vw);bottom:max(40px,7vh);width:clamp(150px,22vmin,240px);height:clamp(150px,22vmin,240px);border-radius:50%;box-shadow:0 2px 18px #000a,0 0 0 3px #0a1c28cc;pointer-events:none;z-index:5}
 #gmenu{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,92vw);background:rgba(8,20,28,.93);border:1px solid #ffffff33;border-radius:16px;padding:16px 20px;color:#e6efee;box-shadow:0 8px 40px #000a;font:14px system-ui,sans-serif}
 #gmenu h3{margin:0 0 6px;font-size:18px;min-height:20px}
 #gmenu .tabs{display:flex;gap:6px;margin-bottom:10px}
@@ -39,7 +39,7 @@ canvas{display:block;touch-action:none}
 <button id="vr">Enter VR</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// Lantern Tide v3.12: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v6.0: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 (() => {
@@ -658,7 +658,7 @@ function islandCell(i, j) {
   const key = (i + 4096) * 8192 + (j + 4096);
   let a = isleCache.get(key);
   if (a) return a;
-  a = { type: 0, x: 0, z: 0, r: 0, p1: 0, p2: 0, p3: 0, h: 0, feature: "", lob: 0.6, lobF: 0, cliffH: 0, cliffP: 0, road: false, farm: false, farmTh: 0, i, j, id: i + "," + j, seed: hash3(i, j, 9) };
+  a = { type: 0, x: 0, z: 0, r: 0, p1: 0, p2: 0, p3: 0, h: 0, feature: "", veg: 0, lob: 0.6, lobF: 0, cliffH: 0, cliffP: 0, road: false, farm: false, farmTh: 0, i, j, id: i + "," + j, seed: hash3(i, j, 9) };
   if (!(i === 0 && j === 0) && Math.abs(i) <= WORLD_N && Math.abs(j) <= WORLD_N) {
     // a size class first (islets to big islands), then what kind of island that size can be; plenty of cells are only open sea
     const sk = hash3(i, j, 10), rk = hash3(i, j, 2);
@@ -690,6 +690,7 @@ function islandCell(i, j) {
       a.road = (type === 1 || type === 2) && r >= 150 && hash3(i, j, 12) < 0.68;
       a.farm = (type === 1 || type === 3) && r >= 100 && hash3(i, j, 13) < 0.7;
       a.farmTh = hash3(i, j, 17) * 6.2832;
+      { const vk = hash3(i, j, 80); a.veg = vk < 0.4 ? 0 : vk < 0.72 ? 1 : 2; } // palms / mixed / deep broadleaf woodland
       a.h = type === 2 ? clamp(r * 0.55, 85, 185) * (0.85 + 0.3 * hash3(i, j, 8)) : type === 1 ? Math.min(12, r * 0.06) : ISLE_H[type];
     }
   }
@@ -1276,7 +1277,7 @@ const water = new THREE.Mesh(
           vec3 sk = skyColor(normalize(vec3(0.0, 0.9, 0.3))) * vec3(0.7, 0.95, 1.0);
           vec3 c = mix(uUnderCol * 1.1, mix(uUnderCol * 1.5, sk, 0.75), win);
           c += vec3(0.5, 0.8, 0.85) * pow(win, 2.0) * (0.5 + 0.5 * sin(vWorld.x * 2.1 + vWorld.z * 1.7 + uTime * 2.0)) * 0.12;
-          c = mix(c, uUnderCol, smoothstep(6.0, 30.0, dist));
+          c = mix(c, uUnderCol, smoothstep(8.0, 48.0, dist));
           gl_FragColor = vec4(c, 1.0);
           return;
         }
@@ -2058,6 +2059,18 @@ const land = new THREE.Mesh(
         albedo *= mix(1.0, 0.75, uWet * gt);
         albedo *= 1.0 - 0.3 * I0;
         albedo = mix(albedo, albedo * vec3(0.78, 0.7, 0.62), smoothstep(0.1, 0.9, I0)); // damp, packed sand at the bottom of a groove
+        // large, slow patches of lighter and darker, warmer and cooler ground, on a turned grid so no pattern repeats along the axes
+        {
+          vec2 pr = mat2(0.8, -0.6, 0.6, 0.8) * p;
+          albedo *= 0.86 + 0.28 * fbm(pr * 0.013 + 5.0);
+          albedo = mix(albedo, albedo * vec3(1.08, 1.02, 0.88), smoothstep(0.55, 0.78, vnoise(pr * 0.045 + 2.0)) * 0.7);
+          albedo = mix(albedo, albedo * vec3(0.9, 1.0, 1.06), smoothstep(0.6, 0.8, vnoise(pr * 0.09 - 7.0)) * 0.5);
+          // the sea floor in the shallows: cooler and greener, with the dancing net of caustics
+          float shal = (1.0 - smoothstep(-0.5, 0.15, y)) * smoothstep(-7.0, -0.8, y);
+          float cwv = sin(p.x * 1.7 + sin(p.y * 1.3 + uTime * 0.9) * 1.5 + uTime) * sin(p.y * 1.9 + sin(p.x * 1.1 - uTime * 0.7) * 1.5 - uTime * 0.8);
+          albedo = mix(albedo, albedo * vec3(0.7, 1.0, 0.96), shal * 0.45);
+          albedo *= 1.0 + 0.55 * pow(max(cwv, 0.0), 3.0) * shal * uSunVis;
+        }
 
         // Light: sun (dimmed by cloud shadows), sky, moon, and nearby lamps
         float cSh = mix(1.0, cloudShadow(vWorld, uSunDir), uSunVis);
@@ -2521,9 +2534,9 @@ lighthouse.glow.material.map = dotTexture;
 // Coastline's weather: a forecast that moves between clear, cloud, rain and storm, plus separate "fog days" that
 // thicken and thin. Each visit starts at a random point in it.
 const WEATHER_TARGETS = [0.1, 0.1, 0.35, 0.6, 0.95];
-const _fogDay = Math.random() < 0.3;
+const _fogDay = Math.random() < 0.05; // (rare: a fog day buries the whole world in grey)
 const _w0 = _fogDay ? 0.1 : WEATHER_TARGETS[Math.floor(Math.random() * WEATHER_TARGETS.length)];
-const weather = { fogDay: _fogDay, timer: rand(20, 50), fogTimer: rand(60, 120), fog: _fogDay ? 0.9 : 0, fogTarget: _fogDay ? 0.9 : 0, value: _w0, target: _w0, windAngle: -Math.PI / 2, windSpeed: 6, flash: 0, secondFlash: -1, strikeTimer: 6, cloudOffset: new THREE.Vector2(), auto: true, autoTimer: 70 };
+const weather = { fogDay: _fogDay, timer: rand(20, 50), fogTimer: rand(60, 120), fog: _fogDay ? 0.45 : 0, fogTarget: _fogDay ? 0.45 : 0, value: _w0, target: _w0, windAngle: -Math.PI / 2, windSpeed: 6, flash: 0, secondFlash: -1, strikeTimer: 6, cloudOffset: new THREE.Vector2(), auto: true, autoTimer: 70 };
 const wx = { cover: 0, overcast: 0, rain: 0, storm: 0, fog: 0 };
 
 // ----- Rain -----
@@ -2615,7 +2628,7 @@ function updateWeather(dt) {
   // On a fog day the fog bank thickens and thins; now and then it lifts enough to see a little farther
   weather.fogTimer -= dt;
   if (weather.fogTimer <= 0) {
-    weather.fogTarget = weather.fogDay ? (Math.random() < 0.7 ? 1 : 0.45) : 0;
+    weather.fogTarget = weather.fogDay ? (Math.random() < 0.5 ? 0.6 : 0.3) : 0;
     weather.fogTimer = rand(60, 120);
   }
   const fogStep = (weather.locked ? 0.04 : 0.01) * dt;
@@ -2699,8 +2712,8 @@ function applyEnvironment(hours) {
   if (wx.fog > 0) {
     // fog: everything fades into a soft grey-white
     tmpColor.copy(PALETTE.fog).multiplyScalar(lightLevel);
-    top.lerp(tmpColor, wx.fog * 0.85);
-    horizon.lerp(tmpColor, wx.fog * 0.95);
+    top.lerp(tmpColor, wx.fog * 0.5);
+    horizon.lerp(tmpColor, wx.fog * 0.65);
   }
   if (flash > 0) {
     top.lerp(PALETTE.flash, flash * 0.6);
@@ -2735,10 +2748,10 @@ function applyEnvironment(hours) {
   waterUniforms.uShallow.value.copy(PALETTE.shallowWater).lerp(PALETTE.stormShallow, wx.overcast);
 
   // Rain cuts visibility
-  waterUniforms.uFogNear.value = lerp(FOG_NEAR * (1 - 0.6 * wx.rain), 6, wx.fog) + spaceState.alt * 0.5;
-  waterUniforms.uFogFar.value = lerp(FOG_FAR - 90 * wx.rain, 130, wx.fog) + spaceState.alt * 6;
-  scene.fog.near = lerp(lerp(120, 40, wx.rain), 6, wx.fog);
-  scene.fog.far = lerp(lerp(1500, 450, wx.rain), 130, wx.fog) + spaceState.alt * 8;
+  waterUniforms.uFogNear.value = lerp(FOG_NEAR * (1 - 0.6 * wx.rain), 25, wx.fog) + spaceState.alt * 0.5;
+  waterUniforms.uFogFar.value = lerp(FOG_FAR - 90 * wx.rain, 420, wx.fog) + spaceState.alt * 6;
+  scene.fog.near = lerp(lerp(120, 40, wx.rain), 25, wx.fog);
+  scene.fog.far = lerp(lerp(1500, 450, wx.rain), 420, wx.fog) + spaceState.alt * 8;
   landUniforms.uFogN.value = scene.fog.near;
   landUniforms.uFogF.value = scene.fog.far;
   landUniforms.uWet.value = wx.rain;
@@ -5161,7 +5174,7 @@ function updatePlayer(dt) {
     const fd = flightDirection();
     if (fd) {
       flying = true;
-      player.fv.lerp(flyTmp.copy(fd).multiplyScalar(player.y > 400000 ? 0 : FLIGHT_SPEEDS[opts.flightSpd][1]), 1 - Math.exp(-dt * 3));
+      player.fv.lerp(flyTmp.copy(fd).multiplyScalar(player.y > 400000 ? 0 : Math.min(FLIGHT_SPEEDS[opts.flightSpd][1], 22 + 1.4 * Math.max(0, player.y - surfaceAt(player.x, player.z)))), 1 - Math.exp(-dt * 3));
     }
   }
   if (!flying) {
@@ -5203,7 +5216,11 @@ function updatePlayer(dt) {
       player.grounded = false;
     }
     if (flying) player.vy = player.fv.y;
-    else player.vy -= 9.8 * dt;
+    else {
+      player.vy -= 9.8 * dt;
+      // let go and you do not drop like a stone: you float down, slower the nearer the ground (and never faster than a skydiver)
+      player.vy = Math.max(player.vy, -Math.min(70, 2.5 + 0.9 * Math.max(0, player.y - here)));
+    }
     let feet = player.y + player.vy * dt;
     if (feet <= here + 0.001) {
       feet = here;
@@ -5224,7 +5241,7 @@ function updatePlayer(dt) {
   rig.position.set(player.x, player.y, player.z);
   rig.rotation.y = yaw;
   if (!renderer.xr.isPresenting) camera.rotation.set(pitch, 0, 0, "YXZ");
-  vigWant = renderer.xr.isPresenting ? Math.min(1, len * (runOn ? 0.7 : 0.4) + Math.abs(input.turn) * 0.5) * 0.45 : 0;
+  vigWant = renderer.xr.isPresenting ? Math.min(1, len * (runOn ? 0.7 : 0.4) + Math.abs(input.turn) * 0.5 + (flying ? 0.35 + 0.5 * Math.min(1, player.fv.length() / 300) : 0)) * 0.45 : 0;
 }
 
 // ===== Comfort: the edges of your view darken a little while you move or turn =====
@@ -5247,6 +5264,13 @@ vignette.position.z = -0.22;
 vignette.renderOrder = 50;
 vignette.visible = false;
 camera.add(vignette);
+// a quick fade from black after a teleport or a long jump, so arriving is never a hard cut
+let screenFade = 0;
+const fadeQuad = new THREE.Mesh(new THREE.PlaneGeometry(3, 3), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthTest: false, depthWrite: false, toneMapped: false, fog: false }));
+fadeQuad.position.z = -0.15;
+fadeQuad.renderOrder = 100;
+fadeQuad.visible = false;
+camera.add(fadeQuad);
 
 function buzz(h, strength = 0.5, ms = 50) {
   try {
@@ -6412,7 +6436,7 @@ const WEATHER_PRESETS = {
   cloudy: { v: 0.35, fog: 0 },
   rain: { v: 0.6, fog: 0 },
   storm: { v: 0.95, fog: 0 },
-  fog: { v: 0.1, fog: 1 },
+  fog: { v: 0.1, fog: 0.8 },
   mist: { v: 0.28, fog: 0.5 },
 };
 function setWeatherPreset(name) {
@@ -6447,6 +6471,7 @@ function teleportTo(x, z, lookX, lookZ) {
   yaw = Math.atan2(-(lookX - x), -(lookZ - z));
   pitch = 0;
   lastFoot = null;
+  screenFade = 1;
   toggleMenu(false);
 }
 const DOCK_BOARD = { x: ISL.x + DOCK.nx * (DOCK.r0 + (DOCK.r1 - DOCK.r0) * 0.72), z: ISL.z + DOCK.nz * (DOCK.r0 + (DOCK.r1 - DOCK.r0) * 0.72) };
@@ -6494,11 +6519,11 @@ const TELEPORTS = [
     const a = nearestIsland(ty, player.x, player.z);
     a ? teleportToIsland(a) : flashHint("No " + name.toLowerCase() + " in this world");
   }]),
-  ...[["fishingCabin", "Fishing cabin"], ["abandonedCamp", "Abandoned camp"], ["forestShrine", "Forest shrine"]].map(([id, name]) => ["Nearest: " + name.toLowerCase(), () => {
+  ...[["fishingCabin", "Fishing cabin"], ["abandonedCamp", "Abandoned camp"], ["forestShrine", "Forest shrine"], ["lighthouse", "Lighthouse"], ["shipwreck", "Shipwreck"], ["observatory", "Observatory"], ["ruins", "Hidden ruins"]].map(([id, name]) => ["Nearest: " + name.toLowerCase(), () => {
     const p = nearestPOI(id);
     if (!p) return flashHint("None found");
     loadChunkNow(p.a);
-    const front = id === "forestShrine" ? 12 : id === "fishingCabin" ? 9 : 8;
+    const front = { forestShrine: 12, fishingCabin: 9, lighthouse: 10, shipwreck: 14, observatory: 11, ruins: 14 }[id] || 8;
     teleportTo(p.x + Math.sin(p.yaw) * front, p.z + Math.cos(p.yaw) * front, p.x, p.z);
   }]),
 ];
@@ -6863,7 +6888,14 @@ const chunkLandMat = (() => {
     if (!fs.includes(a)) throw new Error("land shader patch failed: " + a.slice(0, 40));
     fs = fs.replace(a, b);
   };
-  must("varying vec3 vN;", "varying vec3 vN;\n      varying vec4 vTint;\n      varying float vLava;\n      varying float vField;");
+  must("varying vec3 vN;", "varying vec3 vN;\n      varying vec4 vTint;\n      varying float vLava;\n      varying float vField;\n      varying vec4 vGrass;");
+  must("green *= 0.65 + 0.7 * blades;", `green *= 0.65 + 0.7 * blades;
+        green *= vGrass.rgb;
+        {
+          float fk;
+          float fs = scatter(p + 33.0, 3.5, 0.1, 0.06, fk) * vGrass.a * near;
+          green = mix(green, fk < 0.33 ? vec3(0.96, 0.86, 0.3) : fk < 0.66 ? vec3(0.9, 0.42, 0.52) : vec3(0.86, 0.86, 0.96), fs * 0.9);
+        }`);
   must("      void main() {", `      // Coastline's fields: a warped patchwork of crops, offset row by row, with hedgerows and tractor lines
       vec3 fieldColor(vec2 p, out float kind, out float hedge) {
         vec2 w = p + vec2(vnoise(p * 0.012), vnoise(p * 0.012 + 7.0)) * 44.0 - 22.0;
@@ -6910,12 +6942,14 @@ const chunkLandMat = (() => {
       attribute vec4 aTint;
       attribute float aLava;
       attribute float aField;
+      attribute vec4 aGrass;
       uniform float uCurve;
       varying vec3 vWorld;
       varying vec3 vN;
       varying vec4 vTint;
       varying float vLava;
       varying float vField;
+      varying vec4 vGrass;
       void main() {
         vec4 wp = modelMatrix * vec4(position, 1.0);
         vWorld = wp.xyz;
@@ -6923,6 +6957,7 @@ const chunkLandMat = (() => {
         vTint = aTint;
         vLava = aLava;
         vField = aField;
+        vGrass = aGrass;
         vec2 cd = wp.xz - cameraPosition.xz;
         gl_Position = projectionMatrix * viewMatrix * (wp - vec4(0.0, dot(cd, cd) * uCurve, 0.0, 0.0));
       }
@@ -6988,6 +7023,15 @@ function groundTint(a, x, z, h, slope, rho, th) {
 
 // ----- the land of one island -----
 const fineStep = (a) => (a.r > 230 ? 8 : 6);
+// each island's own greens (a multiplier on the meadow colour) and how many wildflowers it has
+function grassPalette(a) {
+  const v = a.veg;
+  if (a.type === 2) return [0.95, 0.82, 0.55, 0];       // scorched, ash-dusted
+  if (a.type === 3) return [1.3, 1.15, 0.72, 0.1];       // dry, golden, old
+  if (a.type === 4) return [0.62, 0.8, 0.5, 0];          // dark, wet
+  if (a.type === 5 || a.type === 6) return [1.0, 1.05, 0.9, 0.1];
+  return v === 0 ? [1.0, 1.08, 0.82, 0.55] : v === 1 ? [0.85, 1.0, 0.7, 0.35] : [0.66, 0.9, 0.58, 0.15]; // lush / mixed / deep woodland
+}
 function* buildTerrain(c, step) {
   const a = c.a;
   islandPOIs(a);
@@ -6998,7 +7042,8 @@ function* buildTerrain(c, step) {
     for (let i = 0; i < n; i++) H[j * n + i] = bedHeightJS(x0 + i * step, z0 + j * step);
     if (j % 10 === 9) yield;
   }
-  const pos = new Float32Array(n * n * 3), tint = new Float32Array(n * n * 4), lava = new Float32Array(n * n), field = new Float32Array(n * n);
+  const pos = new Float32Array(n * n * 3), tint = new Float32Array(n * n * 4), lava = new Float32Array(n * n), field = new Float32Array(n * n), grass = new Float32Array(n * n * 4);
+  const pal = grassPalette(a);
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
       const k = j * n + i, x = x0 + i * step, z = z0 + j * step, h = H[k];
@@ -7009,6 +7054,8 @@ function* buildTerrain(c, step) {
         const qx = x - a.x, qz = z - a.z, th = Math.atan2(qz, qx);
         const t = groundTint(a, x, z, h, slope, Math.hypot(qx, qz) / isleCoastR(a, th), th);
         tint[k * 4] = t.r; tint[k * 4 + 1] = t.g; tint[k * 4 + 2] = t.b; tint[k * 4 + 3] = t.a;
+        const gv = 0.9 + 0.2 * vnz(x / 240, z / 240, 90);
+        grass[k * 4] = pal[0] * gv; grass[k * 4 + 1] = pal[1] * (0.95 + 0.1 * gv); grass[k * 4 + 2] = pal[2] * gv; grass[k * 4 + 3] = pal[3] * smooth(0.4, 0.6, vnz(x / 90, z / 90, 91));
         lava[k] = t.lava;
         if (a.farm) field[k] = farmMask(a, x, z);
       }
@@ -7027,6 +7074,7 @@ function* buildTerrain(c, step) {
   geo.setAttribute("aTint", new THREE.BufferAttribute(tint, 4));
   geo.setAttribute("aLava", new THREE.BufferAttribute(lava, 1));
   geo.setAttribute("aField", new THREE.BufferAttribute(field, 1));
+  geo.setAttribute("aGrass", new THREE.BufferAttribute(grass, 4));
   geo.setIndex(idx);
   geo.computeVertexNormals();
   geo.computeBoundingSphere();
@@ -7061,7 +7109,7 @@ function nearRoad(a, x, z, m) {
 function palmSpots(c) {
   if (c.spots) return c.spots;
   const a = c.a, R = mulberry(a.seed * 31 + 5), out = [];
-  const want = a.type === 6 ? 0 : a.type === 1 ? Math.floor(a.r * a.r * 0.0026) : a.type === 4 ? Math.floor(a.r * a.r * 0.0008) : a.type === 2 ? Math.floor(a.r * a.r * 0.0004) : a.type === 3 ? Math.floor(a.r * a.r * 0.0006) : Math.floor(a.r * a.r * 0.0003);
+  const want = a.type === 6 ? 0 : a.type === 1 ? Math.floor(a.r * a.r * 0.0026 * (a.veg === 2 ? 0.2 : a.veg === 1 ? 0.55 : 1)) : a.type === 4 ? Math.floor(a.r * a.r * 0.0008) : a.type === 2 ? Math.floor(a.r * a.r * 0.0004) : a.type === 3 ? Math.floor(a.r * a.r * 0.0006) : Math.floor(a.r * a.r * 0.0003);
   for (let tries = 0; tries < want * 6 && out.length < want; tries++) {
     const th = R() * 6.2832, rr = Math.sqrt(R()) * isleCoastR(a, th);
     const x = a.x + Math.cos(th) * rr, z = a.z + Math.sin(th) * rr;
@@ -7246,7 +7294,7 @@ function islandPOIs(a) {
       for (let k = 0; k < 8 && ok; k++) {
         const ax = x + Math.cos(k * 0.7854) * def.radius, az = z + Math.sin(k * 0.7854) * def.radius;
         const hh = isleRaw(a, ax, az);
-        if (hh < 0.8 || isleDist(a, ax, az) > -6) ok = false; // no water or sea inside the footprint
+        if (hh < (def.minH ?? 0.8) || isleDist(a, ax, az) > (def.edgeD ?? -6)) ok = false; // no water or sea inside the footprint
         lo = Math.min(lo, hh); hi = Math.max(hi, hh); sum += hh;
       }
       if (!ok || hi - lo > def.flatTol) continue;
@@ -7268,6 +7316,7 @@ function islandPOIs(a) {
     return pts;
   };
   for (const p of a.pois) {
+    if (p.def.noPath) continue;
     let ex = p.x, ez = p.z;
     for (let k = 0; k < 60 && isleDist(a, ex, ez) < -4; k++) (ex += Math.cos(p.th) * 8), (ez += Math.sin(p.th) * 8);
     a.paths.push(wob(p.x, p.z, ex, ez, Math.max(3, Math.floor(Math.hypot(ex - p.x, ez - p.z) / 9)), p.th * 3));
@@ -7279,6 +7328,7 @@ function islandPOIs(a) {
 // the ground is levelled under a place and blended back into the land around it
 function poiFlatten(a, x, z, h) {
   for (const p of a.pois || islandPOIs(a)) {
+    if (p.def.noFlatten) continue;
     const d = Math.hypot(x - p.x, z - p.z), R = p.def.radius + 1;
     if (d < R + p.def.blend) h = lerp(h, p.y, 1 - smooth(R, R + p.def.blend, d));
   }
@@ -7384,7 +7434,11 @@ function updatePOIs(dt, t, lampsOn) {
     if (!c.done) continue;
     for (const p of c.a.pois || []) {
       const d = Math.hypot(camPos.x - p.x, camPos.z - p.z);
-      if (d < 120 && !(poiSave[p.id] && poiSave[p.id].found)) (poiState(p.id).found = true), savePOI();
+      if (d < 120 && !(poiSave[p.id] && poiSave[p.id].found)) {
+        poiState(p.id).found = true; savePOI();
+        const n = Object.values(poiSave).filter((q) => q && q.found).length;
+        flashHint("Discovered: " + p.def.name + "  (" + n + " places found)");
+      }
       if (d < 1100 && !p.proxy) {
         const ctx = makePOICtx(p);
         _pr = mulberry(p.a.seed + p.x * 0.001);
@@ -7791,6 +7845,198 @@ definePOI({
   },
 });
 
+// ===== v6: four more places: a lighthouse on the rocks, a wreck on the sand, an observatory on the heights, a ring of ruins in the woods =====
+const NOTES = {
+  lighthouse: ["\"Keeper's log. The lamp turns by hand now. I cannot remember who last wound it, only that someone must.\"", "\"Keeper's log. A ship's light out past the reef, three nights running. It never moves.\""],
+  wreck: ["A ship's log, salt-stained: \"We saw the light on the headland and steered for it. The reef was not on any chart.\"", "Carved into the rail: \"Walk inland. The ground there is kind.\""],
+  observatory: ["A star chart, pinned open. One constellation is circled in red, with a single word: \"Home?\"", "The telescope is aimed at a bright point low in the sky. A pencilled note: \"It is not a star. It moves.\""],
+  ruins: ["The stones hum faintly under your palm. Far off, something answers.", "The runes brighten as you touch them. The circle remembers being a gate."],
+};
+definePOI({
+  id: "lighthouse", name: "Lighthouse", types: [1, 3, 4, 2], chance: 1, inland: [5, 16], elev: [2.2, 16], maxSlope: 0.4, radius: 5, flatTol: 4, clear: 9, blend: 6, spacing: 150, forest: null, minH: 0.3, edgeD: -1.5,
+  proxy() { return [pCyl(2.2, 3.6, 24, 0xe9e4d6, 0, 12, 0, 8), pCyl(1.6, 1.8, 2.4, 0xc23b2e, 0, 25.4, 0, 8)]; },
+  *detail(ctx) {
+    const { mats, state } = ctx;
+    const rock = [], white = [], red = [], dark = [];
+    for (let i = 0; i < 10; i++) {
+      const a = i * 0.63 + _pr() * 0.3, g = makeRock(2, i * 5.1 + ctx.p.x, -4);
+      const s = 1.6 + _pr() * 2.2;
+      g.scale(s, s * 0.8, s);
+      rock.push(part(g, 0x6c6a62, Math.cos(a) * 6.4, -0.6, Math.sin(a) * 6.4));
+    }
+    rock.push(pCyl(4.8, 6.2, 5, 0x77746b, 0, -1.6, 0, 10));
+    // tapered white tower with red bands
+    const H = 22;
+    for (let k = 0; k < 4; k++) {
+      const y0 = k * (H / 4), y1 = y0 + H / 4, r0 = 3.4 - 1.5 * (y0 / H), r1 = 3.4 - 1.5 * (y1 / H);
+      (k % 2 ? red : white).push(pCyl(r1, r0, H / 4 + 0.02, k % 2 ? 0xd04a38 : 0xffffff, 0, y0 + H / 8, 0, 12));
+    }
+    dark.push(pBox(1.2, 2.2, 0.3, 0x2a2420, 0, 1.6, 3.35));
+    for (let k = 0; k < 3; k++) dark.push(pBox(0.5, 0.9, 0.2, 0x1c2a36, 0, 5 + k * 5.5, 2.5 - k * 0.55));
+    dark.push(pCyl(2.6, 2.6, 0.35, 0x2a2e30, 0, H + 0.1, 0, 14), pCyl(1.9, 1.9, 0.18, 0x2a2e30, 0, H + 2.7, 0, 12));
+    for (let i = 0; i < 12; i++) { const a = i * 0.5236; dark.push(pBox(0.1, 1.1, 0.1, 0x2a2e30, Math.cos(a) * 2.45, H + 0.8, Math.sin(a) * 2.45)); }
+    red.push(pCone(2.2, 1.8, 0xb83a2c, 0, H + 3.7, 0, 12), pBlob(0.25, 0x2a2e30, 0, H + 4.7, 0));
+    ctx.collide(0, 0, 3.6);
+    ctx.surface(0, 0, 5.5, 5.5, -0.2);
+    ctx.group.add(pMesh(rock, mats.stone), pMesh(white, mats.plain), pMesh(red, mats.plain), pMesh(dark, mats.plain));
+    const lamp = ctx.glowMat(0xfff2c0, 0xffd27a);
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.75, 10, 8), lamp);
+    bulb.position.y = H + 1.7;
+    ctx.group.add(bulb);
+    const beamMat = new THREE.MeshBasicMaterial({ color: 0xffe6a0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    ctx.track(beamMat);
+    const bg = new THREE.CylinderGeometry(0.2, 7, 140, 10, 1, true);
+    bg.rotateZ(Math.PI / 2); bg.translate(70, 0, 0);
+    const pivot = new THREE.Group();
+    pivot.position.y = H + 1.7;
+    pivot.add(new THREE.Mesh(bg, beamMat), new THREE.Mesh(bg, beamMat));
+    pivot.children[1].rotation.y = Math.PI;
+    ctx.group.add(pivot);
+    const halo = ctx.sprite(0xffe2a0, 14);
+    halo.position.y = H + 1.7;
+    ctx.group.add(halo);
+    ctx.interact(0, 1.4, 3.8, "read the keeper's log", () => { state.read = ((state.read | 0) + 1) % NOTES.lighthouse.length; savePOI(); flashHint(NOTES.lighthouse[state.read]); });
+    return {
+      update(t, dt, lampsOn) {
+        const on = Math.max(lampsOn, state.lit ? 1 : 0);
+        pivot.rotation.y = t * 0.6;
+        lamp.emissiveIntensity = 0.3 + 2.2 * on;
+        beamMat.opacity = 0.16 * on;
+        halo.material.opacity = 0.2 + 0.55 * on;
+      },
+    };
+  },
+});
+definePOI({
+  id: "shipwreck", name: "Shipwreck", types: [1, 2, 3, 4], chance: 1, inland: [0, 7], elev: [-1.2, 2], maxSlope: 0.25, radius: 7, flatTol: 4, clear: 10, blend: 0, spacing: 120, forest: null, minH: -2.5, edgeD: 8, noFlatten: true, noPath: true,
+  proxy() { return [pBox(5, 3.4, 16, 0x5a4636, 0, 1.2, 0, 0.08, 0, 0.14), pBox(0.5, 9, 0.5, 0x4a382a, 0, 5, 1.5, 0.15, 0, 0.1)]; },
+  *detail(ctx) {
+    const { mats, state } = ctx;
+    const wood = [], dark = [], cloth = [];
+    const wd = 0x6a523e, wd2 = 0x4a382a;
+    // a hull of ribs and planks listing on the sand
+    const L = 15;
+    ctx.group.rotation.z = 0; // (the lean is built into the parts)
+    const lean = 0.2;
+    for (let i = 0; i < 9; i++) {
+      const z = -L / 2 + i * (L / 8), w = 2.6 - Math.pow((i - 4) / 4, 2) * 1.6;
+      for (const sd of [-1, 1]) {
+        dark.push(pBox(0.22, 2.0, 0.28, wd2, sd * w, 0.5, z, 0, 0, -sd * 0.7 + lean));
+      }
+      if (i < 6) wood.push(pBox(w * 2, 0.16, 0.3, wd2, 0, -0.4, z, 0, 0, lean));
+    }
+    // planks on the lower hull; the upper side is gone
+    for (let k = 0; k < 14; k++) {
+      const z0 = -L / 2 + 0.9 + _pr() * (L - 2.4), len = 1.8 + _pr() * 3;
+      wood.push(pBox(0.1, 0.44, len, wd, -2.0 - _pr() * 0.4, 0.3 + (k % 4) * 0.5, z0, 0, 0, 0.45 + lean));
+    }
+    wood.push(pBox(4.6, 0.12, L - 3, wd2, 0, 0.1, 0, 0, 0, lean)); // the deck remains
+    // snapped mast and a boom
+    dark.push(pCyl(0.18, 0.26, 7.5, wd2, 0.3, 3.5, 1, 7, 0.2, 0, 0.35), pCyl(0.1, 0.1, 5, wd2, -1.4, 0.6, 3, 6, 0, 0.5, 1.45));
+    cloth.push(pBox(2.4, 0.02, 2.8, 0xcfc4a6, 1.6, 0.35, -2, 0.12, 0.3, 0.05));
+    // bowsprit toward the sea and a stern post
+    dark.push(pBox(0.3, 0.3, 4, wd2, 0, 1.0, L / 2 + 1.5, -0.3, 0, lean), pBox(0.5, 3.4, 0.5, wd2, 0, 1.5, -L / 2 + 0.2, 0.05, 0, lean));
+    // scatter: barrels, a chest, stones
+    for (let i = 0; i < 5; i++) dark.push(pCyl(0.36, 0.36, 0.7, 0x5e4a38, (_pr() - 0.5) * 12, 0.3, (_pr() - 0.5) * 18, 8, 0.2 * _pr(), 0, 0.3 * _pr()));
+    wood.push(pBox(0.9, 0.5, 0.6, 0x4e3a2a, 3.4, 0.3, 1.5, 0, 0.4, 0), pBox(0.94, 0.16, 0.64, 0x8a6c2a, 3.4, 0.62, 1.5, 0, 0.4, 0));
+    ctx.group.add(pMesh(wood, mats.wood), pMesh(dark, mats.wood), pMesh(cloth, mats.cloth));
+    ctx.collide(0, 0, 3);
+    ctx.interact(3.4, 0.7, 1.5, "search the wreck", () => { state.read = ((state.read | 0) + 1) % NOTES.wreck.length; savePOI(); chime(); flashHint(NOTES.wreck[state.read]); });
+    const glow = ctx.sprite(0xffd890, 3);
+    glow.position.set(3.4, 0.9, 1.5);
+    ctx.group.add(glow);
+    return { update(t, dt, lampsOn) { glow.material.opacity = (0.15 + 0.55 * lampsOn) * (0.7 + 0.3 * Math.sin(t * 2)); } };
+  },
+});
+definePOI({
+  id: "observatory", name: "Observatory", types: [1, 3, 2, 4], chance: 1, inland: [40, 160], elev: [7, 60], maxSlope: 0.16, radius: 7, flatTol: 2.6, clear: 11, blend: 9, spacing: 150, forest: null,
+  proxy() { return [pCyl(5, 5.4, 4, 0xd9d4c6, 0, 2, 0, 12), pBlob(5, 0xe9e6dc, 0, 4, 0, 1, 0.9, 1, 10)]; },
+  *detail(ctx) {
+    const { mats, state } = ctx;
+    const stone = [], white = [], dark = [], brass = [];
+    stone.push(pCyl(7, 7.3, 0.5, 0x8a8a82, 0, 0.1, 0, 20), pBox(4, 0.2, 3, 0x8a8a82, 0, 0.1, 8, 0, 0, 0));
+    white.push(pCyl(4.6, 4.8, 3.6, 0xdcd7c9, 0, 2.2, 0, 16));
+    // the dome, a hemisphere with a slit that opens
+    const dg = new THREE.SphereGeometry(4.7, 16, 8, 0, 6.2832, 0, 1.5708);
+    const dome = new THREE.Mesh(dg, mats.plain);
+    const cols = new Float32Array(dg.attributes.position.count * 3).fill(0.92);
+    dg.setAttribute("color", new THREE.BufferAttribute(cols, 3));
+    dome.position.y = 4;
+    ctx.group.add(dome);
+    dark.push(pBox(1.4, 2.6, 0.2, 0x2a2420, 0, 1.9, 4.7), pBox(1.0, 1.0, 0.1, 0x1c2a36, 3.3, 2.7, 3.2, 0, 0.7, 0), pBox(1.0, 1.0, 0.1, 0x1c2a36, -3.3, 2.7, 3.2, 0, -0.7, 0));
+    // the telescope on a stand, outside under the sky
+    brass.push(pCyl(0.12, 0.2, 1.4, 0x8a6a2a, 6, 0.9, 5, 6));
+    dark.push(pBox(0.9, 0.6, 0.9, 0x3a3630, 6, 0.4, 5));
+    const tele = pMesh([pCyl(0.22, 0.28, 2.8, 0xb08a3a, 0, 0, 0, 10)], mats.plain);
+    tele.position.set(6, 2.4, 5);
+    tele.rotation.set(0, 0.5, 1.0);
+    ctx.group.add(tele);
+    // a desk with a star chart indoors is skipped; the chart is pinned to a board
+    dark.push(pBox(1.6, 1.1, 0.08, 0x5e4a38, -6, 1.2, 4, 0, 0.3, 0), pBox(1.4, 0.9, 0.02, 0xe8dcc0, -6, 1.2, 4.05, 0, 0.3, 0), pBox(0.1, 1.2, 0.1, 0x5e4a38, -6.4, 0.6, 4.1), pBox(0.1, 1.2, 0.1, 0x5e4a38, -5.6, 0.6, 4));
+    ctx.collide(0, 0, 4.9);
+    ctx.collide(6, 5, 0.7);
+    ctx.surface(0, 0, 7, 7, 0.4);
+    ctx.group.add(pMesh(stone, mats.stone), pMesh(white, mats.plain), pMesh(dark, mats.plain), pMesh(brass, mats.plain));
+    ctx.interact(-6, 1.2, 4, "study the star chart", () => { state.read = ((state.read | 0) + 1) % NOTES.observatory.length; savePOI(); flashHint(NOTES.observatory[state.read]); });
+    ctx.interact(6, 2.4, 5, "look through the telescope", () => { state.looked = true; savePOI(); chime(); flashHint("Through the lens: a pale world turning slowly, and a smaller light circling it."); });
+    return {};
+  },
+});
+definePOI({
+  id: "ruins", name: "Hidden ruins", types: [3, 1, 4, 2], chance: 1, inland: [50, 170], elev: [2, 20], maxSlope: 0.13, radius: 10, flatTol: 2.2, clear: 12, blend: 8, spacing: 140, forest: [0.35, 1],
+  proxy() { const o = []; for (let i = 0; i < 6; i++) o.push(pBox(1.4, 5 - (i % 2) * 2, 1.4, 0x7a786e, Math.cos(i * 1.047) * 8, 2, Math.sin(i * 1.047) * 8)); return o; },
+  *detail(ctx) {
+    const { mats, state } = ctx;
+    const stone = [], moss = [], rune = [];
+    const gray = 0x80807a, mossG = 0x4f6a2e;
+    // a ring of standing stones, some fallen; each one planted to the ground beneath it
+    const N = 8, R = 8;
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * 6.2832, x = Math.cos(a) * R, z = Math.sin(a) * R, gy = ctx.ground(x, z) - ctx.ground(0, 0);
+      const h = i % 3 === 1 ? 2 : 4.4 + _pr() * 0.8;
+      const fell = i === 2 || i === 5;
+      if (fell) {
+        stone.push(pBox(1.3, 1.1, 4.2, gray, x, gy + 0.5, z, 0, a, 0.15));
+        moss.push(pBlob(0.9, mossG, x, gy + 1.0, z, 1.2, 0.3, 1.2, 6));
+      } else {
+        stone.push(pBox(1.3, h + 1.5, 1.2, gray, x, gy + h / 2 - 0.6, z, (_pr() - 0.5) * 0.08, a, (_pr() - 0.5) * 0.08));
+        moss.push(pBlob(0.7, mossG, x, gy + 0.5, z, 1.3, 0.4, 1.3, 6));
+        if (i % 2 === 0) { rune.push(pBox(0.5, 0.06, 0.04, 0xffffff, x - Math.cos(a) * 0.62, gy + 1.8, z - Math.sin(a) * 0.62, 0, a + 1.5708, 0), pBox(0.06, 0.6, 0.04, 0xffffff, x - Math.cos(a) * 0.62, gy + 2.2, z - Math.sin(a) * 0.62, 0, a + 1.5708, 0)); }
+        ctx.collide(x, z, 0.8);
+      }
+    }
+    // lintel across two stones, the stone slab at the centre with its rune
+    stone.push(pCyl(3.2, 3.4, 0.35, gray, 0, 0.1, 0, 16), pBox(1.3, 1.1, 1.3, 0x6e6c64, 0, 0.85, 0));
+    const rm = ctx.glowMat(0x7ad8ff, 0x3ab8ff);
+    const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.42, 0), rm);
+    core.position.set(0, 2.2, 0);
+    ctx.group.add(core);
+    for (let i = 0; i < 12; i++) moss.push(pBlob(0.4 + 0.4 * _pr(), mossG, (_pr() - 0.5) * 18, 0.1, (_pr() - 0.5) * 18, 1, 0.3, 1, 5));
+    for (let i = 0; i < 6; i++) { const a = _pr() * 6.28, g = makeRock(2, i * 4.7 + ctx.p.z, -6), s = 0.7 + _pr(); g.scale(s, s * 0.7, s); stone.push(part(g, 0x6e6c62, Math.cos(a) * 13, 0.1, Math.sin(a) * 13)); }
+    ctx.collide(0, 0, 1);
+    ctx.surface(0, 0, 3.0, 3.0, 0.3);
+    const runeMat = ctx.glowMat(0x9ae8ff, 0x3ab8ff);
+    ctx.group.add(pMesh(stone, mats.stone), pMesh(moss, mats.plain), new THREE.Mesh(mergeGeos(rune), runeMat));
+    const halo = ctx.sprite(0x7ad8ff, 9);
+    halo.position.set(0, 2.2, 0);
+    ctx.group.add(halo);
+    let pulse = 0;
+    ctx.interact(0, 1.8, 0, "touch the stone", () => { state.awake = true; pulse = 1; state.read = ((state.read | 0) + 1) % NOTES.ruins.length; savePOI(); chime(); flashHint(NOTES.ruins[state.read]); });
+    return {
+      update(t, dt, lampsOn, d) {
+        pulse = Math.max(0, pulse - dt * 0.4);
+        const near = 1 - smooth(8, 60, d), aw = state.awake ? 1 : 0;
+        const v = 0.25 + 0.75 * Math.max(aw, near * 0.6) + pulse;
+        rm.emissiveIntensity = v * 2 * (0.85 + 0.15 * Math.sin(t * 2));
+        runeMat.emissiveIntensity = v * 1.6;
+        core.position.y = 2.2 + 0.15 * Math.sin(t * 1.3) + pulse * 0.5;
+        core.rotation.y = t * 0.5;
+        halo.material.opacity = v * 0.45;
+      },
+    };
+  },
+});
+
 // ===== What makes each kind of island itself: smoke and lava glow, a stepped temple, mangroves, a city =====
 let _cityMat = null, _cityRoof = null;
 function cityMats() {
@@ -7853,6 +8099,68 @@ function bufMesh(b, mat, uv = true) {
   return m;
 }
 
+
+// ===== Other trees: broadleaf woodland, cypresses, charred snags (cheap instanced shapes, so every island has its own look) =====
+let _trees = null;
+function treeGeos() {
+  if (!_trees) {
+    const R = mulberry(0.77);
+    const blob = (r, col, x, y, z, sy = 0.85) => {
+      const g = new THREE.IcosahedronGeometry(r, 1);
+      const p = g.attributes.position;
+      for (let i = 0; i < p.count; i++) { const k = 0.82 + 0.36 * R(); p.setXYZ(i, p.getX(i) * k, p.getY(i) * k * sy, p.getZ(i) * k); }
+      g.computeVertexNormals();
+      return part(g, col, x, y, z);
+    };
+    _pr = R;
+    const broad = [0, 1, 2].map((k) => mergeGeos([
+      pCyl(0.16, 0.3, 4.2, 0x6a5238, 0, 2.1, 0, 6), pCyl(0.09, 0.13, 2.4, 0x6a5238, 0.5, 4.2, 0.1, 5, 0, 0, -0.7),
+      blob(2.6, [0x2f6a2a, 0x3d7a2c, 0x56822e][k], 0, 5.6, 0), blob(1.9, [0x2f6a2a, 0x3d7a2c, 0x56822e][k], 1.5, 4.9, 0.6), blob(1.7, [0x3a7a30, 0x4a8630, 0x6a8a32][k], -1.1, 6.4, -0.5),
+    ]));
+    const cypress = mergeGeos([pCyl(0.14, 0.24, 1.6, 0x5a4636, 0, 0.8, 0, 5), pCone(1.15, 7.5, 0x2d4a2a, 0, 5.2, 0, 7)]);
+    const snag = mergeGeos([pCyl(0.1, 0.24, 5.4, 0x2a2420, 0, 2.7, 0, 5), pCyl(0.05, 0.09, 2.2, 0x2a2420, 0.7, 4.3, 0, 4, 0, 0, -0.9), pCyl(0.04, 0.08, 1.8, 0x2a2420, -0.6, 3.6, 0.2, 4, 0, 0, 0.8)]);
+    _trees = { broad, cypress, snag, mat: curved(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 })) };
+    _pr = Math.random;
+  }
+  return _trees;
+}
+function* extrasTrees(c) {
+  const a = c.a, T = treeGeos(), R = mulberry(a.seed * 43 + 17);
+  let kinds; // [species, share]
+  if (a.type === 1) kinds = a.veg === 2 ? [["broad", 1]] : a.veg === 1 ? [["broad", 1]] : null;
+  else if (a.type === 2) kinds = [["snag", 1]];
+  else if (a.type === 3) kinds = [["cypress", 0.8], ["broad", 0.2]];
+  else return;
+  if (!kinds) return;
+  const area = a.r * a.r;
+  const want = Math.floor(area * (a.type === 1 ? (a.veg === 2 ? 0.0034 : 0.0016) : a.type === 2 ? 0.0009 : 0.0016));
+  const lists = {}, m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new THREE.Vector3(), p = new THREE.Vector3();
+  let total = 0;
+  for (let tries = 0; tries < want * 6 && total < want; tries++) {
+    const th = R() * 6.2832, rr = Math.sqrt(R()) * isleCoastR(a, th), x = a.x + Math.cos(th) * rr, z = a.z + Math.sin(th) * rr;
+    const d = isleDist(a, x, z), h = bedHeightJS(x, z);
+    if (d > -10 || h < 1.5 || h > (a.type === 2 ? 40 : 16)) continue;
+    const f = forestDensity(x, z);
+    if (R() > smooth(0.34, 0.6, f) * 0.95 + 0.06) continue;
+    if (poiKeepClear(a, x, z, 3) || (a.paths && distToPaths(a, x, z) < 2.4) || (a.farm && farmMask(a, x, z) > 0.1) || nearRoad(a, x, z, 8)) continue;
+    if (a.type === 2 && h > 24) continue;
+    const pick = R();
+    let acc = 0, sp = kinds[0][0];
+    for (const [k, share] of kinds) { acc += share; if (pick < acc) { sp = k; break; } }
+    const key = sp === "broad" ? "broad" + Math.floor(R() * 3) : sp;
+    (lists[key] ||= []).push([x, h - 0.15, z, 0.75 + R() * 0.7, R() * 6.28]);
+    total++;
+    if (total % 40 === 0) yield;
+  }
+  for (const key in lists) {
+    const geo = key.startsWith("broad") ? T.broad[+key.slice(5)] : T[key];
+    const im = new THREE.InstancedMesh(geo, T.mat, lists[key].length);
+    lists[key].forEach(([x, y, z, s, yw], j) => { e.set(0, yw, 0); im.setMatrixAt(j, m4.compose(p.set(x, y, z), q.setFromEuler(e), sc.set(s, s * (0.85 + 0.3 * R()), s))); });
+    im.frustumCulled = false;
+    c.group.add(im);
+  }
+  yield;
+}
 
 // ===== The shore of every island: boulders at the waterline, sea stacks, driftwood, dune shrubs, and kelp forests on the shelf =====
 // (corals and reef fish come from the reef system, which follows you round whichever island you are at)
@@ -8101,6 +8409,7 @@ function* buildIslandExtras(c) {
     yield;
   }
   yield* extrasShore(c);
+  yield* extrasTrees(c);
   yield* extrasRoad(c);
   yield* extrasFarm(c);
   if (a.type === 6) yield* extrasAirport(c);
@@ -8891,7 +9200,7 @@ const seaLife = (() => {
 // As you rise, uCurve grows from a gentle bend (sea level) to the planet's true curvature, so the flat world wraps round a sphere.
 // The sea and the far side of the world are painted on a real sphere (a map baked from the same height function the water and land use),
 // lit by the real sun and moon, with clouds, city lights on the night side, and an atmosphere you see edge-on at the limb.
-const PLANET_R = 12000, ATMO_H = 450; // (a thin atmosphere hugging the ground)
+const PLANET_R = 12000, ATMO_H = 1300; // (a thin atmosphere hugging the ground)
 const K_LOW = 1 / (2 * 150000), K_HIGH = 1 / (2 * PLANET_R);
 const spaceState = { alt: 0, dark: 0, fade: 0, vis: 0, cloudFade: 0 };
 
@@ -9030,7 +9339,7 @@ const planet = new THREE.Mesh(
         float mu = dot(n, uSun);
         float day = smoothstep(-0.08, 0.18, mu);
         float diff = max(mu, 0.0);
-        float cl = cloudAt(pc) * (0.35 + 0.65 * day) * smoothstep(300.0, 1500.0, cameraPosition.y);
+        float cl = cloudAt(pc) * (0.35 + 0.65 * day) * smoothstep(200.0, 1000.0, cameraPosition.y);
         float csh = cloudAt(pc - vec2(uSun.x, uSun.z) * 500.0);
         vec3 sunC = vec3(1.0, 0.95, 0.86);
         vec3 lit = albedo * (sunC * diff * (1.0 - 0.45 * csh) + vec3(0.03, 0.05, 0.09));
@@ -9083,7 +9392,7 @@ const atmosphere = new THREE.Mesh(
         for (int i = 0; i < 10; i++) {
           float tt = t0 + len * (float(i) + 0.5) / 10.0;
           vec3 s = ro + rd * tt;
-          float dens = exp(-(length(s) - uRp) / 105.0);
+          float dens = exp(-(length(s) - uRp) / 230.0);
           float mu = dot(normalize(s), uSun);
           float lightf = smoothstep(-0.28, 0.3, mu);
           float twi = smoothstep(-0.3, -0.02, mu) * (1.0 - smoothstep(0.0, 0.4, mu));
@@ -9092,8 +9401,8 @@ const atmosphere = new THREE.Mesh(
           col += sc * lightf * dens * (len / 10.0) * fwd;
           od += dens * len / 10.0;
         }
-        col *= 0.0016;
-        float a = (1.0 - exp(-od * 0.0026)) * uOpacity;
+        col *= 0.00075;
+        float a = (1.0 - exp(-od * 0.0012)) * uOpacity;
         gl_FragColor = vec4(col * uOpacity, a);
       }
     `,
@@ -9184,10 +9493,10 @@ let _camFar = 12000;
 function updateSpace(dt) {
   const alt = Math.max(0, camPos.y);
   spaceState.alt = alt;
-  spaceState.dark = smooth(250, 10000, alt); // the sky goes from blue to black slowly, and is black in space
-  spaceState.cloudFade = smooth(500, 1700, alt); // the clouds lie low: climb through them and they are beneath you
+  spaceState.dark = smooth(250, 3500, alt); // the sky goes from blue to black slowly, and is black in space
+  spaceState.cloudFade = smooth(300, 1200, alt); // the clouds lie low: climb through them and they are beneath you
   spaceState.fade = 0;
-  spaceState.vis = smooth(4500, 9500, alt);
+  spaceState.vis = smooth(1500, 3500, alt);
   const k = lerp(K_LOW, K_HIGH, smooth(150, 3000, alt));
   sharedCurve.value = k;
   shared.uSpace.value = spaceState.dark;
@@ -9195,7 +9504,7 @@ function updateSpace(dt) {
   // a deeper view distance as you climb
   const far = alt > 1500 ? 900000 : 12000;
   if (far !== _camFar) { _camFar = far; camera.far = far; camera.updateProjectionMatrix(); }
-  sky.visible = sky.visible && alt < 14000;
+  sky.visible = sky.visible && alt < 5000;
   // bake the map a little each frame until it is done
   if (mapBake.gen) {
     const t0 = performance.now();
@@ -9245,7 +9554,7 @@ mapCanvas.width = mapCanvas.height = 256;
 const mapDom = $("minimap");
 const mmx = mapCanvas.getContext("2d");
 const ISLE_COLORS = ["", "#d8c48c", "#6b5046", "#c6b48a", "#74803f", "#9a9a9e", "#b7c3cf"];
-const POI_COLORS = { fishingCabin: "#ffb45a", abandonedCamp: "#8ed06a", forestShrine: "#ff6a5a" };
+const POI_COLORS = { fishingCabin: "#ffb45a", abandonedCamp: "#8ed06a", forestShrine: "#ff6a5a", lighthouse: "#ffffff", shipwreck: "#c9a36a", observatory: "#b79cff", ruins: "#7ad8ff" };
 const mapTex = new THREE.CanvasTexture(mapCanvas);
 const mapPanel = new THREE.Mesh(new THREE.PlaneGeometry(0.17, 0.17), new THREE.MeshBasicMaterial({ map: mapTex, transparent: true, toneMapped: false, depthTest: false }));
 camera.add(mapPanel); // in your view, up in the left corner, wherever you look or move
@@ -9352,18 +9661,23 @@ function drawMinimap() {
     mmx.fill();
     mmx.restore();
   }
-  // you: an arrow pointing the way you face
+  // you: a bright arrow with a dark halo, pointing the way you face
   mmx.save();
   mmx.translate(c, c);
-  mmx.rotate(Math.atan2(camFwd.x, -camFwd.z));
-  mmx.fillStyle = "#ff4d3a";
-  mmx.strokeStyle = "#fff";
-  mmx.lineWidth = 2;
+  mmx.fillStyle = "rgba(4,16,24,0.55)";
   mmx.beginPath();
-  mmx.moveTo(0, -11); mmx.lineTo(7.5, 9); mmx.lineTo(0, 4.5); mmx.lineTo(-7.5, 9);
-  mmx.closePath();
+  mmx.arc(0, 0, 17, 0, 6.2832);
   mmx.fill();
+  mmx.rotate(Math.atan2(camFwd.x, -camFwd.z));
+  mmx.fillStyle = "#ff5a3c";
+  mmx.strokeStyle = "#ffffff";
+  mmx.lineJoin = "round";
+  mmx.lineWidth = 3;
+  mmx.beginPath();
+  mmx.moveTo(0, -15); mmx.lineTo(10.5, 12); mmx.lineTo(0, 6.5); mmx.lineTo(-10.5, 12);
+  mmx.closePath();
   mmx.stroke();
+  mmx.fill();
   mmx.restore();
   mmx.restore();
   mmx.strokeStyle = "rgba(255,255,255,0.7)";
@@ -9371,25 +9685,26 @@ function drawMinimap() {
   mmx.beginPath();
   mmx.arc(c, c, Rr, 0, 6.2832);
   mmx.stroke();
-  mmx.fillStyle = "#fff";
-  mmx.font = "bold 16px system-ui, sans-serif";
-  mmx.textAlign = "center";
-  mmx.fillText("N", c, 20);
-  mmx.font = "13px system-ui, sans-serif";
-  mmx.fillStyle = "rgba(255,255,255,0.85)";
-  mmx.fillText(range >= 1000 ? (range / 1000).toFixed(1) + " km" : range + " m", c, c + Rr * 0.78);
+  const pill = (txt, y, color, size) => {
+    mmx.font = `bold ${size}px system-ui, sans-serif`;
+    mmx.textAlign = "center";
+    mmx.textBaseline = "middle";
+    const w = mmx.measureText(txt).width + 16, h = size + 9;
+    mmx.fillStyle = "rgba(4,16,24,0.82)";
+    mmx.beginPath();
+    mmx.roundRect ? mmx.roundRect(c - w / 2, y - h / 2, w, h, h / 2) : mmx.rect(c - w / 2, y - h / 2, w, h);
+    mmx.fill();
+    mmx.fillStyle = color;
+    mmx.fillText(txt, c, y + 1);
+  };
+  pill("N", 17, "#ffffff", 15);
   if (near) {
     const d = Math.round(Math.hypot(near.x - cx, near.z - cz) - near.r);
     const dirs = ["E", "SE", "S", "SW", "W", "NW", "N", "NE"];
     const dir = dirs[(Math.round(Math.atan2(near.z - cz, near.x - cx) / 0.7854) + 8) % 8];
-    mmx.font = "bold 13px system-ui, sans-serif";
-    mmx.fillStyle = "#f2c14e";
-    mmx.strokeStyle = "rgba(8,24,34,0.9)";
-    mmx.lineWidth = 3;
-    const txt = `${ISLE_NAMES[near.type]} · ${d > 999 ? (d / 1000).toFixed(1) + " km" : d + " m"} ${dir}`;
-    mmx.strokeText(txt, c, c + Rr * 0.6);
-    mmx.fillText(txt, c, c + Rr * 0.6);
+    pill(`${ISLE_NAMES[near.type]} · ${d > 999 ? (d / 1000).toFixed(1) + " km" : d + " m"} ${dir}`, c + Rr * 0.6, "#ffd98a", 14);
   }
+  pill(range >= 1000 ? (range / 1000).toFixed(1) + " km" : range + " m", c + Rr * 0.8, "#cfe6ea", 12);
   mapTex.needsUpdate = true;
 }
 function updateMinimap(dt) {
@@ -9462,9 +9777,9 @@ function frame(now) {
       shared.uUnderCol.value.setRGB(0.03, 0.3, 0.36).multiplyScalar(0.12 + 0.88 * clamp(shared.uLightLevel.value, 0, 1));
       scene.fog.color.copy(shared.uUnderCol.value);
       scene.fog.near = 0.5;
-      scene.fog.far = 30;
+      scene.fog.far = 48;
       landUniforms.uFogN.value = 0.5;
-      landUniforms.uFogF.value = 30;
+      landUniforms.uFogF.value = 48;
       renderer.setClearColor(shared.uUnderCol.value);
     }
   }
@@ -9505,6 +9820,9 @@ function frame(now) {
   const vm = vignette.material;
   vm.opacity += (vigWant - vm.opacity) * (1 - Math.exp(-dt * 6));
   vignette.visible = vm.opacity > 0.02;
+  screenFade = Math.max(0, screenFade - dt * 1.8);
+  fadeQuad.material.opacity = screenFade;
+  fadeQuad.visible = screenFade > 0.01;
   renderer.render(scene, camera);
   drawPip();
 }

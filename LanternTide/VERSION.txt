@@ -1,7 +1,21 @@
-Lantern Tide - version 5.1 (6 Oct 2026)
+Lantern Tide - version 6.0 (4 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 6.0: A REVIEW PASS - places worth finding
+- The white-out, found at last: 3 launches in 10 began on a "fog day" at 90% fog, which buries the whole world in grey-white. Fog days
+  are now rare (1 in 20), start thin, and even at full strength you can see ~400 m. The Fog preset is softer too.
+- Space is closer: the sky is fully black by 3.5 km (was 10 km), stars/sun/planets appear from 1.5 km, and the atmosphere now reaches
+  above the clouds (1.3 km), so clouds are always inside it and never float above it.
+- Four new handcrafted places, placed deterministically: a LIGHTHOUSE on the rocky shore (rotating beam at night, keeper's log), a
+  SHIPWRECK half sunk on a beach, an OBSERVATORY on high ground (telescope and star chart), and HIDDEN RUINS (a ring of standing stones in
+  the woods around a rune stone that wakes when touched). All have teleport entries ("Nearest: ...") and minimap marks.
+- Discovery: walking up to a place for the first time shows "Discovered: ..." with a running count. Notes and logs tell a loose story.
+- Terrain: less repetitive land texture (macro variation), shallows tint and caustics, per-island grass palettes with wildflowers, new
+  broadleaf/cypress/snag tree shapes, better underwater visibility.
+- Minimap sits further in with margins that scale with the screen, a clearer player arrow, label pills.
+- Flying: speed scales with height above the ground (gentle near it), soft landings, a fade when teleporting, a light flight vignette.
 
 New in 5.1:
 - Fixed everything looking blown out white on some graphics cards: a sky shader line used smoothstep with its edges the wrong way round,
