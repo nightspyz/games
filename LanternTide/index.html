@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v6.0 -->
+<!-- Lantern Tide v6.1 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -39,7 +39,7 @@ canvas{display:block;touch-action:none}
 <button id="vr">Enter VR</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// Lantern Tide v6.0: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v6.1: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 (() => {
@@ -50,10 +50,8 @@ const $ = (id) => document.getElementById(id);
 // A point at horizontal distance d from the camera drops by d*d*uCurve. That is done once, in the shared "project_vertex" chunk (and the
 // sprite shader), so every ordinary material follows it; the few hand-written shaders (the sea, the land) do the same by hand. uCurve is
 // very gentle at sea level and rises toward the planet's true curvature as you climb (see updateSpace).
-const NOFLAGS = new Set((new URLSearchParams(location.search).get("no") || "").split(","));
-const noFlag = (k) => NOFLAGS.has(k) || NOFLAGS.has("all");
 THREE.ShaderChunk.common += "\nuniform float uCurve;\n";
-if (!noFlag("pv") && !noFlag("pvv")) THREE.ShaderChunk.project_vertex = `
+THREE.ShaderChunk.project_vertex = `
   vec4 mvPosition = vec4(transformed, 1.0);
   #ifdef USE_INSTANCING
     mvPosition = instanceMatrix * mvPosition;
@@ -61,7 +59,7 @@ if (!noFlag("pv") && !noFlag("pvv")) THREE.ShaderChunk.project_vertex = `
   { vec4 wpc = modelMatrix * mvPosition; vec2 cdc = wpc.xz - cameraPosition.xz; wpc.y -= dot(cdc, cdc) * uCurve; mvPosition = viewMatrix * wpc; }
   gl_Position = projectionMatrix * mvPosition;
 `;
-// (sprites are left as three.js makes them: bending their vertex shader whited out the picture on NVIDIA cards under Direct3D 11, and the sun and moon sprites in space must not be bent)
+// (sprites are left as three.js makes them: bending their vertex shader whited the picture out on NVIDIA cards under Direct3D 11)
 // every material gets the shared uCurve uniform, whatever else its own onBeforeCompile does
 {
   Object.defineProperty(THREE.Material.prototype, "onBeforeCompile", {
@@ -98,21 +96,6 @@ renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType("local-floor");
 if (renderer.xr.setFramebufferScaleFactor) renderer.xr.setFramebufferScaleFactor(0.9);
 document.body.appendChild(renderer.domElement);
-
-// ----- a small on-screen log, so a problem on someone else's graphics card can be read from a screenshot -----
-const errLog = (() => {
-  const el = document.createElement("pre");
-  el.style.cssText = "position:fixed;left:8px;bottom:8px;max-width:70vw;max-height:40vh;overflow:hidden;margin:0;padding:6px 8px;border-radius:8px;background:#000c;color:#ffb0a0;font:11px/1.3 monospace;white-space:pre-wrap;word-break:break-all;z-index:50;pointer-events:none;display:none";
-  document.body.appendChild(el);
-  const lines = [];
-  const add = (t) => { lines.push(String(t).replace(/\s+/g, " ").slice(0, 420)); while (lines.length > 9) lines.shift(); el.textContent = lines.join("\n"); el.style.display = "block"; };
-  for (const k of ["error", "warn"]) { const f = console[k]; console[k] = function () { try { add(k + ": " + [...arguments].map((x) => (x && x.message) || x).join(" ")); } catch (e) {} return f.apply(this, arguments); }; }
-  addEventListener("error", (e) => add("error: " + e.message + " @" + e.lineno));
-  const gl = renderer.getContext();
-  const info = "API WebGL" + (renderer.capabilities.isWebGL2 ? "2" : "1") + " | GPU " + (() => { try { const x = gl.getExtension("WEBGL_debug_renderer_info"); return gl.getParameter(x.UNMASKED_RENDERER_WEBGL); } catch (e) { return "?"; } })() + " | prec " + renderer.capabilities.precision + " | tex " + renderer.capabilities.maxTextures + " | fragU " + gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS) + " | varyings " + gl.getParameter(gl.MAX_VARYING_VECTORS);
-  addEventListener("keydown", (e) => { if (e.code === "F2") add(info + " | " + (window.__ltDbg ? window.__ltDbg() : "")); });
-  return add;
-})();
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0xb8dcf3, 120, 900);
@@ -9528,8 +9511,8 @@ function updateSpace(dt) {
   spaceState.fade = 0;
   spaceState.vis = smooth(1500, 3500, alt);
   const k = lerp(K_LOW, K_HIGH, smooth(150, 3000, alt));
-  sharedCurve.value = dbgOff.curve ? 0 : k;
-  shared.uSpace.value = dbgOff.space ? 0 : spaceState.dark;
+  sharedCurve.value = k;
+  shared.uSpace.value = spaceState.dark;
   const Rs = 1 / (2 * k);
   // a deeper view distance as you climb
   const far = alt > 1500 ? 900000 : 12000;
@@ -9764,23 +9747,6 @@ const DAY_SECONDS = 480;
 const game = { hours: rand(0, 24), speed: 1 }; // a random time of day each visit
 let prevHours = game.hours;
 let last = performance.now();
-const dbgOff = {};
-{
-  const names = ["sky", "water", "foam", "land", "far", "clouds", "fog", "curve", "space"];
-  addEventListener("keydown", (e) => {
-    if (!e.altKey || !/^Digit[1-9]$/.test(e.code)) return;
-    const n = names[+e.code[5] - 1];
-    dbgOff[n] = !dbgOff[n];
-    if (n === "clouds") skyCache.setQuality(0, 0, false);
-    if (n === "fog") scene.fog.far = dbgOff.fog ? 1e7 : scene.fog.far;
-    if (!dbgOff.sky) sky.visible = true;
-    if (!dbgOff.water) water.visible = true;
-    if (!dbgOff.land) (land.visible = true), (worldRoot.visible = true);
-    errLog("Alt+" + e.code[5] + " " + n + (dbgOff[n] ? " OFF" : " on"));
-    e.preventDefault();
-  });
-}
-window.__ltDbg = () => `fog ${wx.fog.toFixed(2)} cover ${wx.cover.toFixed(2)} hrs ${game.hours.toFixed(1)} alt ${spaceState.alt.toFixed(0)} light ${shared.uLightLevel.value.toFixed(2)} hor ${shared.uHorizon.value.getHexString()} prog ${renderer.info.programs.length}`;
 function frame(now) {
   samplePerf((now - last) / 1000);
   const dt = Math.min(0.05, Math.max(0.001, (now - last) / 1000));
@@ -9820,11 +9786,6 @@ function frame(now) {
     sky.visible = !u;
     farOcean.visible = !u && camPos.y <= 150; // (above that, the planet's own sea, traced in updateSpace, stands in for it)
     foamLayer.visible = !u;
-    if (dbgOff.sky) sky.visible = false;
-    if (dbgOff.water) water.visible = false;
-    if (dbgOff.foam) foamLayer.visible = false;
-    if (dbgOff.land) (land.visible = false), (worldRoot.visible = false);
-    if (dbgOff.far) (farOcean.visible = false), (planet.visible = false);
     if (u) {
       shared.uUnderCol.value.setRGB(0.03, 0.3, 0.36).multiplyScalar(0.12 + 0.88 * clamp(shared.uLightLevel.value, 0, 1));
       scene.fog.color.copy(shared.uUnderCol.value);
