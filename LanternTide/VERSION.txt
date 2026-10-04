@@ -1,7 +1,20 @@
-Lantern Tide - version 4.0 (5 Oct 2026)
+Lantern Tide - version 4.1 (5 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 4.1:
+- Buildings are solid and lit the right way round (the normals/winding were inverted); you cannot walk or fly into them (box
+  colliders, roof height respected). Window lights, street lights, runway lights, the oil rig's work lights and the volcano glow now show
+  from far away at night (Coastline's glowing points, unaffected by haze).
+- More of Coastline's sea and sky: ships (sailboat, tour boat, ferry, tanker, cruise liner, container ship, coast guard) cruising in
+  open water and round islands; an oil rig (with a flare, a helipad and a deck you can stand on); wind farms at sea and wind turbines
+  on high ground; a flock of gulls that circles the leaping fish and dives; a sightseeing plane circling the island you are at, and
+  airliners crossing high overhead. Teleport: nearest oil rig / wind farm. Cliffs and fields were already in 4.0.
+- Island shores: sandy beaches with boulders at the waterline, sea stacks, driftwood, shrubs, palms right down to the beach, kelp
+  forests, and (as at home) corals, reef rocks and fish schools wherever you swim; leaping fish follow you to any island.
+- The minimap now floats in your view, up in the left corner, instead of sitting on your hand.
+- Festival lanterns (sky lanterns, lotus on the sea, the beach garland) are now OFF by default; turn them on in the World tab.
 
 New in 4.0: THE WIDER WORLD
 - A world of about 6.5 km across, made of islands that stream in as you travel (nothing is loaded at start): tropical islands with
