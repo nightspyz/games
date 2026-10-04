@@ -9316,9 +9316,9 @@ const planet = new THREE.Mesh(
         vec3 rd = normalize(vW - cameraPosition);
         float b = dot(ro, rd);
         float disc = b * b - (dot(ro, ro) - uRs * uRs);
-        if (disc < 0.0) discard;
+        if (!(disc > 0.0)) discard;
         float t = -b - sqrt(disc);
-        if (t < 0.0) discard;
+        if (!(t > 0.0)) discard;
         vec3 P = ro + rd * t;
         vec3 n = P / uRs;
         float dist = t;
@@ -9518,7 +9518,7 @@ function updateSpace(dt) {
   planetU.uSub.value.set(camPos.x, camPos.z);
   planetU.uSpaceCover.value = clamp(wx.cover + 0.2, 0, 1);
   planet.position.copy(camPos);
-  planet.visible = camPos.y > -0.3; // (not from under the sea)
+  planet.visible = camPos.y > 150; // (only seen from the air: at sea level the water's own fade into the haze is the horizon, and the planet's huge radius is too imprecise for some GPUs to trace)
   const ho = ATMO_H;
   const Ra = Rs + ho;
   atmosphere.visible = alt > ho * 1.5 && Rs < 60000;
@@ -9771,7 +9771,7 @@ function frame(now) {
     water.renderOrder = u ? -5 : 1; // from below the surface is drawn first, so it hides what is above it
     water.material.depthWrite = u;
     sky.visible = !u;
-    farOcean.visible = false; // (the planet's own sea, traced in updateSpace, stands in for it)
+    farOcean.visible = !u && camPos.y <= 150; // (above that, the planet's own sea, traced in updateSpace, stands in for it)
     foamLayer.visible = !u;
     if (u) {
       shared.uUnderCol.value.setRGB(0.03, 0.3, 0.36).multiplyScalar(0.12 + 0.88 * clamp(shared.uLightLevel.value, 0, 1));

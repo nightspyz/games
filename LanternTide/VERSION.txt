@@ -4,6 +4,8 @@ Host this folder on any https address and open index.html in the Quest browser (
 Everything is in index.html; three.js r128 is loaded from cdnjs.
 
 New in 6.0: A REVIEW PASS - places worth finding
+- White-out, second attempt: below 150 m the planet shell (a sphere traced in the shader at a 150 km radius, which some GPUs cannot do
+  precisely) is no longer drawn; the original flat far-ocean ring is back down there. The planet only appears when you climb.
 - The white-out, found at last: 3 launches in 10 began on a "fog day" at 90% fog, which buries the whole world in grey-white. Fog days
   are now rare (1 in 20), start thin, and even at full strength you can see ~400 m. The Fog preset is softer too.
 - Space is closer: the sky is fully black by 3.5 km (was 10 km), stars/sun/planets appear from 1.5 km, and the atmosphere now reaches
