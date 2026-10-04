@@ -798,12 +798,12 @@ function cityMats() {
       return win && on ? [1.0, 0.82, 0.5] : [0, 0, 0];
     });
     _cityMat = curved(new THREE.MeshStandardMaterial({ map: tex, emissiveMap: emi, emissive: 0xffffff, emissiveIntensity: 0, vertexColors: true, roughness: 0.85 }));
-    _cityRoof = curved(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }));
+    _cityRoof = curved(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide }));
   }
   return [_cityMat, _cityRoof];
 }
 // a building as raw arrays: four walls with window UVs, and a flat roof
-function addBuilding(wall, roof, cx, cz, y0, w, d, h, rotY, color) {
+function addBuilding(wall, roof, cx, cz, y0, w, d, h, rotY, color, roofCol = null) {
   const c = Math.cos(rotY), s = Math.sin(rotY);
   const hw = w / 2, hd = d / 2;
   const corner = (lx, lz) => [cx + lx * c + lz * s, cz - lx * s + lz * c];
@@ -824,10 +824,31 @@ function addBuilding(wall, roof, cx, cz, y0, w, d, h, rotY, color) {
     else wall.idx.push(o, o + 2, o + 1, o, o + 3, o + 2);
   }
   const o = roof.pos.length / 3;
-  for (const p of P) roof.pos.push(p[0], y0 + h, p[1]), roof.nor.push(0, 1, 0), roof.col.push(0.3, 0.3, 0.32);
+  for (const p of P) roof.pos.push(p[0], y0 + h, p[1]), roof.nor.push(0, 1, 0), roof.col.push(roofCol ? roofCol.r : 0.3, roofCol ? roofCol.g : 0.3, roofCol ? roofCol.b : 0.32);
   const up = (P[2][1] - P[0][1]) * (P[1][0] - P[0][0]) - (P[1][1] - P[0][1]) * (P[2][0] - P[0][0]); // y of (p1-p0)x(p2-p0)
   if (up > 0) roof.idx.push(o, o + 1, o + 2, o, o + 2, o + 3);
   else roof.idx.push(o, o + 2, o + 1, o, o + 3, o + 2);
+}
+// a pitched (gable) roof over a w x d footprint, ridge along the longer side, as triangles with outward normals
+function addGable(buf, cx, cz, y0, w, d, rise, rotY, color, over = 0.5) {
+  const c = Math.cos(rotY), s = Math.sin(rotY), alongX = w >= d;
+  const hw = w / 2 + over, hd = d / 2 + over;
+  const W = (lx, ly, lz) => [cx + lx * c + lz * s, y0 + ly, cz - lx * s + lz * c];
+  const A = W(-hw, 0, -hd), B = W(hw, 0, -hd), C = W(hw, 0, hd), D = W(-hw, 0, hd);
+  const R1 = alongX ? W(-hw, rise, 0) : W(0, rise, -hd), R2 = alongX ? W(hw, rise, 0) : W(0, rise, hd);
+  const mid = [cx, y0 + rise / 2, cz];
+  const tri = (p, q, r) => {
+    const ux = q[0] - p[0], uy = q[1] - p[1], uz = q[2] - p[2], vx = r[0] - p[0], vy = r[1] - p[1], vz = r[2] - p[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const l = Math.hypot(nx, ny, nz) || 1;
+    nx /= l; ny /= l; nz /= l;
+    if (nx * (p[0] - mid[0]) + ny * (p[1] - mid[1]) + nz * (p[2] - mid[2]) < 0) (nx = -nx), (ny = -ny), (nz = -nz);
+    const o = buf.pos.length / 3;
+    for (const v of [p, q, r]) buf.pos.push(v[0], v[1], v[2]), buf.nor.push(nx, ny, nz), buf.col.push(color.r, color.g, color.b);
+    buf.idx.push(o, o + 1, o + 2);
+  };
+  if (alongX) { tri(A, B, R2); tri(A, R2, R1); tri(D, C, R2); tri(D, R2, R1); tri(A, D, R1); tri(B, C, R2); }
+  else { tri(A, D, R2); tri(A, R2, R1); tri(B, C, R2); tri(B, R2, R1); tri(A, B, R1); tri(D, C, R2); }
 }
 const newBuf = () => ({ pos: [], nor: [], uv: [], col: [], idx: [] });
 function bufMesh(b, mat, uv = true) {
@@ -1115,41 +1136,143 @@ function* buildIslandExtras(c) {
     }
     yield;
   } else if (a.type === 5) {
-    // a city: a grid of streets, buildings that grow taller toward the middle, lit windows at night
+    // a city: streets of uneven blocks (a little turned), lots of different sizes with some left empty, flat and pitched roofs, buildings that
+    // grow taller toward the middle on rolling ground, lit windows, street lamps and cars on the roads
     const [wallMat, roofMat] = cityMats();
-    const wall = newBuf(), roof = newBuf();
-    const tmp = new THREE.Color();
-    const winP = [], winC = [];
-    let n = 0;
-    const G = 30, N = Math.ceil(a.r / G) + 1;
-    for (let gx = -N; gx <= N; gx++)
-      for (let gz = -N; gz <= N; gz++) {
-        const cx = a.x + gx * G + 7 + 11.5, cz = a.z + gz * G + 7 + 11.5;
-        if (isleDist(a, cx, cz) > -52) continue;
-        const rho = Math.hypot(cx - a.x, cz - a.z) / a.r;
-        if (R() < 0.12) continue;
-        const w = 11 + R() * 10, d = 11 + R() * 10;
-        const h = 8 + (1 - smooth(0, 0.9, rho)) * 52 * Math.pow(R(), 1.3) + R() * 8;
-        tmp.setHSL(0.08 + R() * 0.06, 0.15 + R() * 0.2, 0.62 + R() * 0.2);
-        const by = bedHeightJS(cx, cz) - 0.4;
-        addBuilding(wall, roof, cx, cz, by, w, d, h, 0, tmp);
-        if (h > 35) addBuilding(wall, roof, cx, cz, by + h, w * 0.6, d * 0.6, 10 + R() * 8, 0, tmp);
-        colliders.push({ x: cx, z: cz, hw: w / 2, hd: d / 2, rot: 0, top: by + h + (h > 35 ? 10 : 0), chunk: a.id });
-        // lights in the windows, seen from far away (as in Coastline's town): small glowing points on the walls
-        for (let k = 0; k < 10; k++) {
-          const wl = Math.floor(R() * 4), u = (R() - 0.5), yy = by + 2 + R() * (h - 3);
-          const px = wl < 2 ? cx + u * w : cx + (wl === 2 ? 1 : -1) * (w / 2 + 0.4), pz = wl < 2 ? cz + (wl === 0 ? 1 : -1) * (d / 2 + 0.4) : cz + u * d;
-          winP.push(px, yy, pz);
-          const warm = R();
-          winC.push(1, 0.72 + warm * 0.15, 0.4 + warm * 0.2);
+    const wall = newBuf(), roof = newBuf(), asph = { pos: [], nor: [], idx: [] };
+    const tmp = new THREE.Color(), rc = new THREE.Color();
+    const winP = [], winC = [], lampsP = [], poles = [], runs = [];
+    const ang = ((a.p2 - 3.14) / 3.14) * 0.28, cA = Math.cos(ang), sA = Math.sin(ang);
+    const W2 = (u, v) => [a.x + u * cA - v * sA, a.z + u * sA + v * cA];
+    const Rc = Math.min(a.r * 0.82, 330), E = Rc + 60; // the built-up core (bigger islands are not built over end to end)
+    const lines = () => { const out = []; let p = -E - R() * 16; while (p < E) { out.push(p); p += 26 + R() * 24 + (out.length % 5 === 0 ? 8 : 0); } return out; };
+    const U = lines(), V = lines();
+    const sw = (i) => (i % 4 === 0 ? 14 : 9); // every fourth street is an avenue
+    const inCity = (x, z, m) => isleDist(a, x, z) < -m && Math.hypot(x - a.x, z - a.z) < Rc + 30;
+    // the streets: a ribbon of asphalt on the ground every 5 m, split where the street runs out of land
+    const street = (along, k, horizontal) => {
+      const width = sw(k), pos = horizontal ? V[k] : U[k];
+      let run = null;
+      for (let t = -E; t <= E; t += 5) {
+        const [x, z] = horizontal ? W2(t, pos) : W2(pos, t);
+        if (!inCity(x, z, 38)) { run = null; continue; }
+        const y = bedHeightJS(x, z) + 0.12;
+        const tx = horizontal ? cA : -sA, tz = horizontal ? sA : cA; // along the street
+        const rx = tz, rz = -tx;
+        if (!run) { run = { pts: [], loop: false }; runs.push(run); }
+        run.pts.push({ x, y, z, rx, rz, tx, tz });
+        const o = asph.pos.length / 3;
+        asph.pos.push(x - rx * width / 2, y, z - rz * width / 2, x + rx * width / 2, y, z + rz * width / 2);
+        asph.nor.push(0, 1, 0, 0, 1, 0);
+        if (run.pts.length > 1) { const k0 = o - 2; asph.idx.push(k0, o, k0 + 1, k0 + 1, o, o + 1); }
+        const n = run.pts.length;
+        if (n % 4 === 0) { // street lamps: a pole every 20 m, alternating sides
+          const side = (n / 4) % 2 ? 1 : -1, off = width / 2 + 1.1;
+          lampsP.push(x + rx * off * side, y + 6.1, z + rz * off * side);
+          poles.push([x + rx * off * side, y - 0.1, z + rz * off * side]);
         }
-        if (++n % 8 === 0) yield;
       }
-    c.group.add(bufMesh(wall, wallMat), bufMesh(roof, roofMat, false));
-    const lampsP = [];
-    for (let gx = -N; gx <= N; gx++) for (let gz = -N; gz <= N; gz++) {
-      const x = a.x + gx * G + 3, z = a.z + gz * G + 3;
-      if (isleDist(a, x, z) < -48) lampsP.push(x, bedHeightJS(x, z) + 4.2, z);
+    };
+    U.forEach((u, i) => street(0, i, false));
+    V.forEach((v, j) => street(0, j, true));
+    yield;
+    let n = 0;
+    for (let i = 0; i < U.length - 1; i++)
+      for (let j = 0; j < V.length - 1; j++) {
+        const u0 = U[i] + sw(i) / 2 + 1.5, u1 = U[i + 1] - sw(i + 1) / 2 - 1.5, v0 = V[j] + sw(j) / 2 + 1.5, v1 = V[j + 1] - sw(j + 1) / 2 - 1.5;
+        if (u1 - u0 < 10 || v1 - v0 < 10) continue;
+        const [mx, mz] = W2((u0 + u1) / 2, (v0 + v1) / 2);
+        if (!inCity(mx, mz, 55) || !inCity(...W2(u0, v0), 30) || !inCity(...W2(u1, v1), 30) || !inCity(...W2(u0, v1), 30) || !inCity(...W2(u1, v0), 30)) continue;
+        if (R() < 0.11) continue; // a park or an empty block
+        const rho = Math.hypot(mx - a.x, mz - a.z) / Rc;
+        const nu = u1 - u0 > 34 ? (R() < 0.6 ? 2 : 1) : 1, nv = v1 - v0 > 34 ? (R() < 0.6 ? 2 : 1) : 1;
+        for (let p = 0; p < nu; p++)
+          for (let q = 0; q < nv; q++) {
+            if (R() < 0.12 + 0.3 * smooth(0.55, 1, rho)) continue; // gaps, more of them toward the edge
+            const lu0 = lerp(u0, u1, p / nu) + 1 + R() * 3, lu1 = lerp(u0, u1, (p + 1) / nu) - 1 - R() * 3, lv0 = lerp(v0, v1, q / nv) + 1 + R() * 3, lv1 = lerp(v0, v1, (q + 1) / nv) - 1 - R() * 3;
+            let w = lu1 - lu0, d = lv1 - lv0;
+            if (w < 7 || d < 7) continue;
+            w *= 0.7 + R() * 0.3; d *= 0.7 + R() * 0.3;
+            const [cx, cz] = W2((lu0 + lu1) / 2 + (R() - 0.5) * 2, (lv0 + lv1) / 2 + (R() - 0.5) * 2);
+            const rotY = -ang + (R() - 0.5) * 0.04;
+            // height: mostly low and mid, a few towers near the middle
+            const tall = (1 - smooth(0, 0.8, rho)) * Math.pow(R(), 2.2);
+            const h = 6 + R() * 9 + tall * 58;
+            const hw = w / 2, hd = d / 2, cr = Math.cos(rotY), sr = Math.sin(rotY);
+            let lo = 1e9, hi = -1e9;
+            for (const [ex, ez] of [[0, 0], [hw, hd], [-hw, hd], [hw, -hd], [-hw, -hd]]) { const y = bedHeightJS(cx + ex * cr + ez * sr, cz - ex * sr + ez * cr); lo = Math.min(lo, y); hi = Math.max(hi, y); }
+            const by = lo - 0.5, ht = h + (hi - lo); // (the foundation reaches down to the low corner on a slope)
+            const tone = R();
+            if (tone < 0.38) tmp.setHSL(0.09 + R() * 0.04, 0.12 + R() * 0.16, 0.6 + R() * 0.2); // concrete
+            else if (tone < 0.62) tmp.setHSL(0.03 + R() * 0.03, 0.3 + R() * 0.15, 0.5 + R() * 0.12); // brick
+            else if (tone < 0.82) tmp.setHSL(0.55 + R() * 0.05, 0.1 + R() * 0.12, 0.62 + R() * 0.18); // grey-blue
+            else tmp.setHSL(0.12 + R() * 0.04, 0.3 + R() * 0.2, 0.74 + R() * 0.1); // pale stucco
+            let topY = by + ht;
+            // roofs: pitched on low buildings, flat with a parapet and rooftop plant on the rest
+            const pitched = h < 20 && R() < 0.6;
+            if (pitched) {
+              addBuilding(wall, roof, cx, cz, by, w, d, ht, rotY, tmp, rc.setHSL(0.02 + R() * 0.04, 0.4, 0.3));
+              addGable(roof, cx, cz, by + ht, w, d, Math.min(w, d) * (0.22 + R() * 0.12), rotY, rc.setHSL(0.02 + R() * 0.05, 0.45 + R() * 0.2, 0.26 + R() * 0.12));
+              topY += Math.min(w, d) * 0.3;
+            } else {
+              let wy = by, ww = w, wd = d, wh = ht;
+              if (h > 30 && R() < 0.7) { // a setback tier on the tall ones
+                addBuilding(wall, roof, cx, cz, by, w, d, ht, rotY, tmp, rc.setRGB(0.3, 0.3, 0.32));
+                wy = by + ht; ww = w * (0.55 + R() * 0.15); wd = d * (0.55 + R() * 0.15); wh = 8 + R() * 14;
+              }
+              addBuilding(wall, roof, cx, cz, wy, ww, wd, wh, rotY, tmp, rc.setRGB(0.28 + R() * 0.08, 0.28 + R() * 0.08, 0.3 + R() * 0.08));
+              topY = wy + wh;
+              const par = rc.setRGB(0.4, 0.4, 0.42); // parapet: four low walls round the edge
+              for (const [px, pz, pw, pd] of [[0, (wd / 2) - 0.2, ww, 0.4], [0, -(wd / 2) + 0.2, ww, 0.4], [(ww / 2) - 0.2, 0, 0.4, wd], [-(ww / 2) + 0.2, 0, 0.4, wd]])
+                addBuilding(roof, roof, cx + px * cr + pz * sr, cz - px * sr + pz * cr, topY, pw, pd, 0.7, rotY, par);
+              for (let k = 0, m = 1 + Math.floor(R() * 3); k < m; k++) // plant, tanks and stair heads
+                addBuilding(roof, roof, cx + (R() - 0.5) * ww * 0.5 * cr, cz - (R() - 0.5) * ww * 0.5 * sr, topY, 1.4 + R() * 2.4, 1.4 + R() * 2.2, 1.0 + R() * 1.8, rotY, rc.setRGB(0.5 + R() * 0.15, 0.5 + R() * 0.12, 0.52));
+              topY += 2.5;
+            }
+            colliders.push({ x: cx, z: cz, hw: w / 2, hd: d / 2, rot: rotY, top: topY, chunk: a.id });
+            for (let k = 0; k < 8; k++) { // lit windows seen from afar
+              const wl = Math.floor(R() * 4), uu = R() - 0.5, yy = by + 2 + R() * (ht - 3);
+              const lx = wl < 2 ? uu * w : (wl === 2 ? 1 : -1) * (w / 2 + 0.4), lz = wl < 2 ? (wl === 0 ? 1 : -1) * (d / 2 + 0.4) : uu * d;
+              winP.push(cx + lx * cr + lz * sr, yy, cz - lx * sr + lz * cr);
+              const warm = R();
+              winC.push(1, 0.72 + warm * 0.15, 0.4 + warm * 0.2);
+            }
+            if (++n % 6 === 0) yield;
+          }
+      }
+    const wmesh = bufMesh(wall, wallMat), rmesh = bufMesh(roof, roofMat, false);
+    c.group.add(wmesh, rmesh);
+    if (asph.pos.length) {
+      const ag = new THREE.BufferGeometry();
+      ag.setAttribute("position", new THREE.Float32BufferAttribute(asph.pos, 3));
+      ag.setAttribute("normal", new THREE.Float32BufferAttribute(asph.nor, 3));
+      ag.setIndex(asph.idx);
+      const am = new THREE.Mesh(ag, curved(new THREE.MeshStandardMaterial({ color: 0x2b2c30, roughness: 0.95, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })));
+      am.frustumCulled = false;
+      c.group.add(am);
+    }
+    if (poles.length) {
+      const pm = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.09, 0.12, 6.2, 6).translate(0, 3.1, 0), curved(new THREE.MeshLambertMaterial({ color: 0x3a3d42 })), poles.length);
+      const m4 = new THREE.Matrix4();
+      poles.forEach((p, i) => pm.setMatrixAt(i, m4.makeTranslation(p[0], p[1], p[2])));
+      pm.frustumCulled = false;
+      c.group.add(pm);
+    }
+    // cars on the streets
+    const long = runs.filter((r) => r.pts.length > 8), cars = [];
+    const nCars = long.length ? Math.min(28, 6 + Math.floor(long.length * 0.8)) : 0;
+    for (let k = 0; k < nCars; k++) {
+      const run = long[Math.floor(R() * long.length)];
+      const mesh = new THREE.Mesh(carGeometry(CAR_COLORS[Math.floor(R() * CAR_COLORS.length)]), poiMats().plain);
+      const lights = [-0.6, 0.6].map((x) => {
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture, color: 0xfff2d0, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+        sp.scale.setScalar(2.0);
+        sp.position.set(x, 0.7, 2.4);
+        mesh.add(sp);
+        return sp;
+      });
+      c.group.add(mesh);
+      cars.push({ mesh, run, s: R() * (run.pts.length - 2), dir: R() < 0.5 ? 1 : -1, speed: 1.6 + R() * 1.6, lights });
     }
     const lg = new THREE.BufferGeometry();
     lg.setAttribute("position", new THREE.Float32BufferAttribute(lampsP, 3));
@@ -1168,6 +1291,18 @@ function* buildIslandExtras(c) {
       _cityMat.emissiveIntensity = 1.5 * lampsOn;
       lm.opacity = 0.9 * lampsOn;
       wm.opacity = 0.95 * smooth(0.05, 0.5, lampsOn);
+      for (const car of cars) {
+        const ps = car.run.pts, np = ps.length;
+        car.s += car.dir * car.speed * dt;
+        if (car.s < 0 || car.s > np - 2) (car.dir *= -1), (car.s = clamp(car.s, 0, np - 2));
+        const i = Math.min(Math.floor(car.s), np - 2), u = car.s - i, p = ps[i], q2 = ps[i + 1];
+        car.mesh.visible = Math.hypot(camPos.x - p.x, camPos.z - p.z) < 700;
+        if (!car.mesh.visible) continue;
+        const lane = 2.0 * car.dir;
+        car.mesh.position.set(lerp(p.x, q2.x, u) + p.rx * lane, lerp(p.y, q2.y, u) + 0.08, lerp(p.z, q2.z, u) + p.rz * lane);
+        car.mesh.rotation.y = Math.atan2((q2.x - p.x) * car.dir, (q2.z - p.z) * car.dir);
+        for (const l of car.lights) l.material.opacity = 0.9 * lampsOn;
+      }
     });
     yield;
   }

@@ -1,7 +1,15 @@
-Lantern Tide - version 7.5 (4 Oct 2026)
+Lantern Tide - version 7.6 (4 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 7.6: A REAL CITY
+- The city island is rebuilt: streets of uneven blocks (every fourth an avenue, the whole grid turned a little), lots of different sizes with gaps and empty
+  blocks (more toward the edge), buildings in concrete, brick, grey-blue and stucco, pitched roofs on low buildings and flat roofs with parapets and rooftop
+  plant on the rest, setback tiers on the tall ones, towers toward the middle only.
+- Asphalt streets, street lamps every 20 m (glowing at night), and cars driving the streets with headlights.
+- The ground is no longer flat: rolling hills, with buildings founded down to the low corner on slopes. Big city islands are built over only in a core.
+- Untested visually before shipping: check the city and report anything odd.
 
 New in 7.5: ISLANDS THAT JOIN INTO LANDMASSES
 - An island is no longer limited to its own 1.2 km cell. The land is now the union of the islands round any point, softened with a smooth minimum, so islands that

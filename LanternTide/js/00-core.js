@@ -1,5 +1,5 @@
 "use strict";
-// Lantern Tide v7.5: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v7.6: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 const $ = (id) => document.getElementById(id);
@@ -776,6 +776,12 @@ function isleDist(a, x, z) {
 function reliefFbm(x, z, s, o) { let v = 0, a = 0.5; for (let i = 0; i < o; i++) { v += a * vnz(x, z, s + i); x = x * 2.03 + 11.7; z = z * 2.03 + 5.3; a *= 0.5; } return v / (1 - Math.pow(0.5, o)); }
 function reliefRidged(x, z, s, o) { let v = 0, a = 0.5, w = 1, n; for (let i = 0; i < o; i++) { n = 1 - Math.abs(2 * vnz(x, z, s + i) - 1); n *= n * w; w = clamp(n * 2, 0, 1); v += n * a; x = x * 2.07 + 11.7; z = z * 2.07 + 5.3; a *= 0.5; } return v; }
 function islandRelief(a, x, z, u, ty) {
+  if (ty === 5) { // the city stands on rolling ground: hills, kept above the water
+    const ic = smooth(30, 140, u);
+    if (ic <= 0) return 0;
+    const s5 = Math.floor(a.seed * 997);
+    return ic * Math.max(-2.5, (reliefFbm(x / 190, z / 190, s5, 3) - 0.3) * 34 + (reliefFbm(x / 65, z / 65, s5 + 9, 2) - 0.5) * 7);
+  }
   if (ty !== 1 && ty !== 2) return 0;
   const inl = smooth(8, 70, u);
   if (inl <= 0) return 0;

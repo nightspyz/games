@@ -662,10 +662,9 @@ function groundTint(a, x, z, h, slope, rho, th) {
   } else if (ty === 3 && h > 2.5) (r = 0.5), (g = 0.47), (b = 0.4), (al = Math.max(al, 0.55 * smooth(2.5, 3.5, h)));
   else if (ty === 4 && h > -0.4) (r = 0.17), (g = 0.22), (b = 0.1), (al = Math.max(al, 0.85 * smooth(-0.4, 0.2, h)));
   else if (ty === 5 && h > 1.0) {
-    const gx = ((x - a.x) % 30 + 30) % 30, gz = ((z - a.z) % 30 + 30) % 30;
-    const road = gx < 7 || gz < 7;
-    (r = road ? 0.27 : 0.46), (g = road ? 0.27 : 0.45), (b = road ? 0.28 : 0.43);
-    al = Math.max(al, 0.92 * smooth(1.0, 2.2, h));
+    const v = 0.43 + 0.06 * vnz(x * 0.2, z * 0.2, 61);
+    (r = v), (g = v * 0.99), (b = v * 0.95);
+    al = Math.max(al, 0.9 * smooth(1.0, 2.2, h));
   }
   // paths
   if (a.paths && h > 0.9) {
