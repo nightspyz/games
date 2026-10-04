@@ -1,7 +1,15 @@
-Lantern Tide - version 3.11 (4 Oct 2026)
+Lantern Tide - version 3.12 (4 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 3.12:
+- Drive the boat (ported from Coastline's boat.js): press Y on the left controller (or the Y key) within a few metres of the
+  boat, or while swimming next to it, to take the helm; press Y again to step away, anywhere at sea. At the helm the left stick is
+  the throttle (forward / back) and the rudder (left / right); on a screen W S A D. It has acceleration and drag, pivots slowly when
+  stopped, rides the waves, slides along shallows, the pier and the breakwater rocks, and has an engine sound. If you leave
+  it, you are carried along the deck while it coasts. The Teleport tab has "Board the boat".
+- Reef rocks and corals no longer look see-through underwater.
 
 New in 3.11:
 - Flight, VRChat style (World tab, on by default): jump (A), then hold a trigger in the air and you fly the way that controller

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v3.11 -->
+<!-- Lantern Tide v3.12 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -31,13 +31,13 @@ canvas{display:block;touch-action:none}
 </style>
 </head>
 <body>
-<div id="hint">WASD walk · drag look · Shift run · E pick up / put down · Space: draw, light a firework, drone take-off/land · drone: WASD fly, R/F up/down, drag to steer</div>
+<div id="hint">WASD walk · drag look · Shift run · E pick up / put down · Y: board / leave the boat · Space: draw, light a firework, drone take-off/land · drone: WASD fly, R/F up/down, drag to steer</div>
 <div id="pip" hidden><div></div></div>
 <div id="gmenu" hidden></div>
 <button id="vr">Enter VR</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// Lantern Tide v3.11: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v3.12: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 (() => {
@@ -2497,7 +2497,7 @@ function updateLighthouse(dt, lampsOn) {
 
 // ===== Sound (all synthesised) =====
 const audio = (() => {
-  let ctx = null, master, lowpass, windGain, seaGain, rainGain, noiseBuf;
+  let ctx = null, master, lowpass, engOsc, engGain, windGain, seaGain, rainGain, noiseBuf;
   const a = {
     start() {
       if (ctx) return ctx.resume && ctx.resume();
@@ -2641,6 +2641,22 @@ const audio = (() => {
       a._drone.g.gain.setTargetAtTime(0.06 * level, t0, 0.2);
       a._drone.o.frequency.setTargetAtTime(150 + Math.min(speed2, 200) * 0.5, t0, 0.2);
     },
+    engine(v) {
+      if (!ctx) return;
+      if (!engOsc) {
+        engOsc = ctx.createOscillator();
+        engOsc.type = "sawtooth";
+        const f = ctx.createBiquadFilter();
+        f.type = "lowpass";
+        f.frequency.value = 260;
+        engGain = ctx.createGain();
+        engGain.gain.value = 0;
+        engOsc.connect(f).connect(engGain).connect(master);
+        engOsc.start();
+      }
+      engGain.gain.setTargetAtTime(v > 0.02 ? 0.05 + 0.1 * v : 0, ctx.currentTime, 0.15);
+      engOsc.frequency.setTargetAtTime(38 + 60 * v, ctx.currentTime, 0.2);
+    },
     underwater(on) {
       if (lowpass) lowpass.frequency.setTargetAtTime(on ? 380 : 20000, ctx.currentTime, 0.08);
     },
@@ -2670,6 +2686,7 @@ const player = { x: ISL.x, z: ISL.z + ISL.r - 9, y: 0 };
 player.y = groundY(player.x, player.z);
 let yaw = Math.PI / 2 + 0.35; // facing west along the beach, toward the dock, the sea on your left
 let pitch = 0;
+const yawView = (d) => (yaw += d);
 colliders.push({ x: lighthouse.group.position.x, z: lighthouse.group.position.z, r: 2.6 });
 
 // ===== Hands: just a sphere on each =====
@@ -2697,9 +2714,9 @@ const handOf = (side) => hands.find((h) => h.side === side);
 // Makes a material look like it's under the water when below the surface: colours fade with the
 // distance travelled through the water (red first), and it blends in less at grazing angles.
 // wag > 0 also swishes the tail end of the mesh (for fish).
-function applyUnderwater(material, wag = 0) {
+function applyUnderwater(material, wag = 0, minA = 0) {
   material.transparent = true;
-  material.customProgramCacheKey = () => "underwater-" + wag;
+  material.customProgramCacheKey = () => "underwater-" + wag + "-" + minA;
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = shared.uTime;
     shader.uniforms.uLight = waterUniforms.uLight;
@@ -2746,7 +2763,7 @@ function applyUnderwater(material, wag = 0) {
           gl_FragColor.rgb = gl_FragColor.rgb * absorb + inscatter * (1.0 - absorb);
           // Solid up close; only the surface reflection at a low angle, and distance, fade them out
           float fres = 0.02 + 0.98 * pow(1.0 - abs(rd.y), 5.0);
-          gl_FragColor.a *= (1.0 - fres) * (1.0 - smoothstep(25.0, 45.0, pathLen));
+          gl_FragColor.a = max(gl_FragColor.a * (1.0 - fres) * (1.0 - smoothstep(25.0, 45.0, pathLen)), ${minA.toFixed(2)}); // (solid things keep most of their body: they blend by colour, not see-through)
         }
         #include <fog_fragment>`
       );
@@ -3149,7 +3166,7 @@ function reefTilesAround(x, z) {
 }
 
 // ===== Drawing: one instanced mesh per shape =====
-const reefMat = applyUnderwater(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0, side: THREE.DoubleSide }));
+const reefMat = applyUnderwater(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0, side: THREE.DoubleSide }), 0, 0.88);
 const reefMeshes = {}; // kind → [InstancedMesh per shape]
 for (const K of REEF_KINDS) {
   reefMeshes[K.id] = K.shapes.map((build, i) => {
@@ -4047,7 +4064,7 @@ const moor = (() => {
   const s = DOCK.r0 + (DOCK.r1 - DOCK.r0) * 0.72;
   const l = 2.75; // far enough from the dock for the fenders
   const x = ISL.x + DOCK.nx * s - DOCK.nz * l, z = ISL.z + DOCK.nz * s + DOCK.nx * l;
-  return { x, z, yaw: Math.atan2(-DOCK.nx, -DOCK.nz), y: 0, pitch: 0, roll: 0, wx: x, wz: z, wyaw: 0 };
+  return { x, z, yaw: Math.atan2(-DOCK.nx, -DOCK.nz), y: 0, pitch: 0, roll: 0, wx: x, wz: z, wyaw: 0, speed: 0, free: false, ready: false };
 })();
 // (the cleat ropes)
 {
@@ -4059,9 +4076,104 @@ const moor = (() => {
   });
 }
 const _mb = new THREE.Vector3(), _md = new THREE.Vector3();
+// ===== Driving the boat (ported from Coastline's boat.js): throttle and steering, with the hull kept in deep water =====
+// Press Y (or the Y key) near the boat to take the helm, again to step away from it, anywhere at sea. While driving, the left stick
+// is the throttle (forward / back) and the rudder (left / right); on a screen, W S A D.
+const boatDrive = { on: false, throttle: 0, turn: 0 };
+const BOAT_ACCEL = 9, BOAT_DRAG = 0.35, BOAT_MAX = 18, BOAT_REV = -5, BOAT_TURN = 0.9, HELM_LZ = -2.3;
+let boatObstacles = null;
+function boatClearance(x, z) {
+  let c = -bedHeightJS(x, z) - 1.6; // the hull needs water a little over a metre and a half deep
+  const dx = x - ISL.x, dz = z - ISL.z;
+  const s = dx * DOCK.nx + dz * DOCK.nz, l = -dx * DOCK.nz + dz * DOCK.nx;
+  c = Math.min(c, Math.max(DOCK.r0 - 1.5 - s, s - (DOCK.r1 + 2), Math.abs(l - 0.175) - 2.4)); // the pier
+  if (!boatObstacles) boatObstacles = seaRocks.map((r) => ({ p: r.getWorldPosition(new THREE.Vector3()), r: Math.max(r.scale.x, r.scale.z) * 1.05 + 1.2 }));
+  for (const o of boatObstacles) c = Math.min(c, Math.hypot(x - o.p.x, z - o.p.z) - o.r);
+  return c;
+}
+const bcv = { x: 0, z: 1, mag: 0 };
+function boatClearDir(x, z) {
+  const gx = boatClearance(x + 1, z) - boatClearance(x - 1, z), gz = boatClearance(x, z + 1) - boatClearance(x, z - 1);
+  const len = Math.hypot(gx, gz);
+  bcv.mag = len / 2;
+  if (len < 1e-6) (bcv.x = 0), (bcv.z = 1);
+  else (bcv.x = gx / len), (bcv.z = gz / len);
+  return bcv;
+}
+function driveBoat(dt) {
+  const th = boatDrive.on ? boatDrive.throttle : 0, tn = boatDrive.on ? boatDrive.turn : 0;
+  moor.speed += th * BOAT_ACCEL * dt;
+  moor.speed -= moor.speed * (th === 0 ? 1.4 : BOAT_DRAG) * dt;
+  if (th === 0 && Math.abs(moor.speed) < 1.5) moor.speed *= Math.exp(-3 * dt);
+  moor.speed = clamp(moor.speed, BOAT_REV, BOAT_MAX);
+  const steer = clamp(moor.speed / 6, -1, 1);
+  const pivot = Math.abs(steer) < 0.35 ? (moor.speed < 0 ? -0.35 : 0.35) : steer; // it can always pivot a little, to turn away from a wall
+  moor.yaw += tn * BOAT_TURN * pivot * dt;
+  const fx = -Math.sin(moor.yaw), fz = -Math.cos(moor.yaw);
+  const mx = fx * moor.speed * dt + Math.cos(weather.windAngle) * weather.windSpeed * 0.05 * dt;
+  const mz = fz * moor.speed * dt + Math.sin(weather.windAngle) * weather.windSpeed * 0.05 * dt;
+  if (boatClearance(moor.x + mx, moor.z + mz) >= 0) {
+    moor.x += mx;
+    moor.z += mz;
+  } else {
+    // slide along shallows, rocks and the pier instead of stopping dead
+    const g = boatClearDir(moor.x + mx, moor.z + mz);
+    const into = mx * g.x + mz * g.z;
+    const nx = moor.x + (into < 0 ? mx - g.x * into : mx), nz = moor.z + (into < 0 ? mz - g.z * into : mz);
+    if (boatClearance(nx, nz) >= -0.01) {
+      moor.x = nx;
+      moor.z = nz;
+      moor.speed *= 1 - 1.5 * dt;
+    } else moor.speed *= 1 - 4 * dt;
+  }
+  if (boatClearance(moor.x, moor.z) < 0) {
+    const g = boatClearDir(moor.x, moor.z);
+    moor.x += g.x * 4 * dt;
+    moor.z += g.z * 4 * dt;
+  }
+}
+let yWas = false, yTap = false;
+let hintTimer = 0;
+const hintDefault = $("hint").textContent;
+function flashHint(msg) {
+  $("hint").textContent = msg;
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => ($("hint").textContent = hintDefault), 3500);
+}
+function boardBoat() {
+  if (Math.hypot(player.x - moor.wx, player.z - moor.wz) > 12) return flashHint("Get closer to the boat (within a few metres), then press Y to climb aboard");
+  moor.free = true;
+  boatDrive.on = true;
+  player.swim = false;
+  player.grounded = true;
+  player.vy = 0;
+  player.fv.set(0, 0, 0);
+  player.sv.set(0, 0, 0);
+  for (const r of moor.ropes) r.m.visible = false;
+  flashHint("At the helm: left stick forward / back = throttle, left / right = steer. Y to step away");
+}
+function leaveBoat() {
+  boatDrive.on = false;
+  boatDrive.throttle = boatDrive.turn = 0;
+}
+function checkBoatKey() {
+  const Lh = handOf("left");
+  const yDown = !!(Lh && Lh.gamepad && Lh.gamepad.buttons[5] && Lh.gamepad.buttons[5].pressed);
+  const tap = (yDown && !yWas) || yTap;
+  yWas = yDown;
+  yTap = false;
+  if (!tap || menu.open) return;
+  if (boatDrive.on) leaveBoat();
+  else boardBoat();
+}
+addEventListener("keydown", (e) => {
+  if (e.code === "KeyY" && !e.repeat) yTap = true;
+});
 function updateBoatMoor(dt, t, lampsOn) {
-  const sw = Math.sin(t * 0.37) * 0.1;
-  const yaw = moor.yaw + Math.sin(t * 0.23) * 0.012;
+  const sw = moor.free ? 0 : Math.sin(t * 0.37) * 0.1;
+  if (moor.free) driveBoat(dt);
+  const yaw = moor.free ? moor.yaw : moor.yaw + Math.sin(t * 0.23) * 0.012;
+  const pbx = moor.wx, pbz = moor.wz, pyaw = moor.wyaw, py = moor.y;
   const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
   const bx = moor.x + fx * sw, bz = moor.z + fz * sw;
   const hBow = waveHeight(bx + fx * 3.5, bz + fz * 3.5, t);
@@ -4075,6 +4187,25 @@ function updateBoatMoor(dt, t, lampsOn) {
   moor.wx = bx;
   moor.wz = bz;
   moor.wyaw = yaw;
+  {
+    // the people aboard travel with it: at the helm you are held there, otherwise you are carried along the deck
+    const c1 = Math.cos(yaw), s1 = Math.sin(yaw);
+    if (boatDrive.on) {
+      player.x = bx + HELM_LZ * s1;
+      player.z = bz + HELM_LZ * c1;
+      player.y = moor.y + boatDeck(HELM_LZ) + 0.05;
+      yawView(yaw - pyaw);
+    } else if (player.onBoat && moor.ready && player.grounded) {
+      const c0 = Math.cos(pyaw), s0 = Math.sin(pyaw);
+      const ddx = player.x - pbx, ddz = player.z - pbz;
+      const lx = ddx * c0 - ddz * s0, lz = ddx * s0 + ddz * c0;
+      player.x = bx + lx * c1 + lz * s1;
+      player.z = bz - lx * s1 + lz * c1;
+      player.y += moor.y - py;
+      yawView(yaw - pyaw);
+    }
+    moor.ready = true;
+  }
   boat.root.position.set(bx, moor.y, bz);
   boat.root.rotation.y = yaw;
   boat.tilt.rotation.set(moor.pitch, 0, moor.roll);
@@ -4091,7 +4222,7 @@ function updateBoatMoor(dt, t, lampsOn) {
   for (const l of dock.lamps) l.glow.material.opacity = lampsOn * 0.9, l.glow.scale.setScalar(0.5 + 1.6 * lampsOn);
   // ropes from the boat's cleats to the dock's piles
   boat.root.updateMatrixWorld(true);
-  for (const r of moor.ropes) {
+  for (const r of moor.free ? [] : moor.ropes) {
     _mb.set(-boatHalfBeam(r.lz) * 0.85, boatDeck(r.lz) + 0.06, r.lz);
     boat.tilt.localToWorld(_mb);
     const s = DOCK.r0 + (DOCK.r1 - DOCK.r0) * 0.72 + (r.lz < 0 ? -r.lz * 0.5 : -r.lz * 0.9);
@@ -4609,6 +4740,11 @@ function blocked(x, z) {
 }
 function updatePlayer(dt) {
   readControls(dt);
+  if (boatDrive.on) {
+    boatDrive.throttle = clamp(-input.z, -1, 1);
+    boatDrive.turn = clamp(-input.x, -1, 1);
+    input.x = input.z = 0; // the stick steers the boat instead of walking
+  }
   const t = shared.uTime.value;
   camera.getWorldDirection(camDir3);
   camFwd.copy(camDir3);
@@ -4635,7 +4771,7 @@ function updatePlayer(dt) {
   let jumpReq = aDown && !aWas;
   aWas = aDown;
   if (!renderer.xr.isPresenting && spaceTap && !props.some((p) => p.holder)) jumpReq = true;
-  if (menu.open) jumpReq = false;
+  if (menu.open || boatDrive.on) jumpReq = false;
 
   // moving
   let mx = 0, mz = 0, my = 0;
@@ -4714,6 +4850,10 @@ function updatePlayer(dt) {
     // stepping up onto something a little higher: a quick, smooth rise rather than a pop
     if (player.grounded && here > player.y && here - player.y < STEP_UP) feet = player.y + (here - player.y) * (1 - Math.exp(-dt * 18));
     player.y = feet;
+  }
+  {
+    const dk = boatDeckAt(player.x, player.z);
+    player.onBoat = typeof dk === "number" && player.y > dk - 0.5 && player.y < dk + 1.5;
   }
   rig.position.set(player.x, player.y, player.z);
   rig.rotation.y = yaw;
@@ -5930,6 +6070,7 @@ function teleportTo(x, z, lookX, lookZ) {
   lastFoot = null;
   toggleMenu(false);
 }
+const DOCK_BOARD = { x: ISL.x + DOCK.nx * (DOCK.r0 + (DOCK.r1 - DOCK.r0) * 0.72), z: ISL.z + DOCK.nz * (DOCK.r0 + (DOCK.r1 - DOCK.r0) * 0.72) };
 const TELEPORTS = [
   ["Beach (start)", () => teleportTo(ISL.x, ISL.z + ISL.r - 9, ISL.x, ISL.z + ISL.r + 20)],
   ["Campfire", () => {
@@ -5951,6 +6092,7 @@ const TELEPORTS = [
     if (best) teleportTo(best.x, best.z, ISL.x, ISL.z);
   }],
   ["End of the dock", () => teleportTo(ISL.x + DOCK.nx * (DOCK.r1 - 2), ISL.z + DOCK.nz * (DOCK.r1 - 2), ISL.x + DOCK.nx * (DOCK.r1 + 60), ISL.z + DOCK.nz * (DOCK.r1 + 60))],
+  ["Board the boat", () => { teleportTo(DOCK_BOARD.x, DOCK_BOARD.z, DOCK_BOARD.x + DOCK.nx * 30, DOCK_BOARD.z + DOCK.nz * 30); boardBoat(); }],
   ["Island hilltop", () => teleportTo(ISL.x, ISL.z, ISL.x, ISL.z + ISL.r)],
 ];
 const TIME_PRESETS = [["Dawn", 6], ["Noon", 12], ["Dusk", 18], ["Night", 0]];
@@ -6278,6 +6420,9 @@ function frame(now) {
   windU.uWind.value.set(Math.cos(weather.windAngle), Math.sin(weather.windAngle));
   windU.uWindStr.value += (clamp(weather.windSpeed / 24, 0, 1) - windU.uWindStr.value) * (1 - Math.exp(-dt));
   const env = applyEnvironment(game.hours);
+  checkBoatKey();
+  updateBoatMoor(dt, t, env.lampsOn); // (before the player, so people aboard are carried with it)
+  audio.engine(boatDrive.on ? clamp(Math.abs(moor.speed) / BOAT_MAX + 0.25 * Math.abs(boatDrive.throttle), 0, 1) : 0);
   updatePlayer(dt);
   rig.updateMatrixWorld(true);
   camera.getWorldPosition(camPos);
@@ -6314,7 +6459,6 @@ function frame(now) {
   updateReefFish(dt, t);
   updateLeapFish(dt, t);
   updateSplashes(dt);
-  updateBoatMoor(dt, t, env.lampsOn);
   garland.update(t, env.lampsOn);
   fire.update(dt, t);
   updateLamps(env.lampsOn);
@@ -6383,7 +6527,7 @@ addEventListener("resize", () => {
 
 renderer.setAnimationLoop(frame);
 // handy for testing in a desktop browser
-window.__lt = { TELEPORTS, blocked, opts, applyOpts, rockSurfaces, rockSurfaceAt, surfaceAt, setImprintRes, camPos, perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
+window.__lt = { boatClearance, bedHeightJS, boatDrive, TELEPORTS, blocked, opts, applyOpts, rockSurfaces, rockSurfaceAt, surfaceAt, setImprintRes, camPos, perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
 })();
 </script>
 </body>
