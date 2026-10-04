@@ -1,7 +1,13 @@
-Lantern Tide - version 7.4 (4 Oct 2026)
+Lantern Tide - version 7.5 (4 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 7.5: ISLANDS THAT JOIN INTO LANDMASSES
+- An island is no longer limited to its own 1.2 km cell. The land is now the union of the islands round any point, softened with a smooth minimum, so islands that
+  meet are bridged by one continuous landmass (the water shader does the same with the nine islands it is given). Island sizes now run up to 720 m in radius, so
+  the biggest ones spill into the cells round them and fuse with their neighbours.
+- The sea floor now drops away to full depth 350 m off any coast (it used to creep down for kilometres), so far-off islands never matter to the water.
 
 New in 7.4: NAVIGATION IN SPACE, ROLL, BIGGER LAND
 - The code is split out of index.html into the js/ folder (nine files, loaded in order). Keep the folder next to index.html when you host it.

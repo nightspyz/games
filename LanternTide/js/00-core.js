@@ -1,5 +1,5 @@
 "use strict";
-// Lantern Tide v7.4: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v7.5: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 const $ = (id) => document.getElementById(id);
@@ -705,7 +705,7 @@ function islandCell(i, j) {
   if (!home && fc >= 0) {
     // a size class first (islets to big islands), then what kind of island that size can be; plenty of cells are only open sea
     const sk = hash3(ci, cj, 10), rk = hash3(ci, cj, 2);
-    let r = sk < 0.28 ? lerp(55, 120, rk) : sk < 0.54 ? lerp(120, 210, rk) : sk < 0.82 ? lerp(210, 300, rk) : lerp(300, 385, rk); // (bigger landmasses: the largest reach nearly the width of their cell)
+    let r = sk < 0.28 ? lerp(55, 120, rk) : sk < 0.54 ? lerp(120, 210, rk) : sk < 0.76 ? lerp(210, 300, rk) : sk < 0.9 ? lerp(300, 480, rk) : lerp(480, 720, rk); // (bigger landmasses: the largest are wider than their cell, and join the islands round them)
     let type = ISLE_FORCED[a.id];
     if (type) r = Math.max(r, ISLE_MINR[type] + 20 * rk);
     else if (hash3(ci, cj, 0) > 0.12 + 0.8 * smooth(0.34, 0.6, vnz((GRID_OX + (ci + 0.5) * CELL + rowOff(cj)) / 2700, (GRID_OZ + (cj + 0.5) * CELL) / 2700, 71))) type = 0; // (dense clusters, wide empty seas)
@@ -785,8 +785,53 @@ function islandRelief(a, x, z, u, ty) {
   const sc = a.h / 120;
   return inl * (reliefRidged(wx / 55, wz / 55, s0 + 10, 4) * 34 * sc + (reliefFbm(x / 60, z / 60, s0, 3) - 0.5) * 16 * sc + (reliefFbm(x / 9, z / 9, s0 + 20, 2) - 0.5) * 1.6);
 }
+// the sea floor off a coast: a gentle sand shelf, then a drop to the deep (full depth 350 m out, so far-off islands never matter)
+function shelfJS(d) { const o = -45 * (1 - Math.exp((-d * 0.05) / 45)), t = smooth(200, 350, d); return o * (1 - t) - 45 * t; }
+// Islands may overlap their cells and join: the land is the union of the islands round a point, softened (a smooth minimum of their coast distances)
+// so two islands that meet are bridged by one landmass instead of showing a seam. The shader does the same with the 9 islands it is given.
+const ISL_SOFT = 40;
+const reachOf = (a) => a.r * (1 + 0.28 * a.lob);
+function isleNb(x, z) { // the islands that could reach into this point's cell (worked out once per cell)
+  const c = isleCellOf(x, z);
+  if (c.nb) return c.nb;
+  const x0 = GRID_OX + c.i * CELL + rowOff(c.j), z0 = GRID_OZ + c.j * CELL, out = [];
+  for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
+    const a = islandCell(c.i + di, c.j + dj);
+    if (!a.type) continue;
+    const dx = Math.max(x0 - a.x, 0, a.x - (x0 + CELL)), dz = Math.max(z0 - a.z, 0, a.z - (z0 + CELL));
+    if (Math.hypot(dx, dz) < reachOf(a) + 450) out.push(a);
+  }
+  c.nb = out;
+  return out;
+}
+const _dk = new Float64Array(32), _im = { d: 1e9, h: -45, a: null };
+function isleMix(x, z, wantH) { // _im.d: softened distance to the land (negative on it); _im.h: the ground there; _im.a: the island that rules here
+  const nb = isleNb(x, z);
+  let dmin = 1e9;
+  for (let k = 0; k < nb.length; k++) {
+    const a = nb[k];
+    if (Math.hypot(x - a.x, z - a.z) - reachOf(a) > 400) { _dk[k] = 1e9; continue; }
+    const d = isleDist(a, x, z);
+    _dk[k] = d;
+    if (d < dmin) dmin = d;
+  }
+  if (dmin > 1e8) { _im.d = 1e9; _im.h = -45; _im.a = null; return _im; }
+  let sw = 0;
+  for (let k = 0; k < nb.length; k++) if (_dk[k] < dmin + 4 * ISL_SOFT) sw += Math.exp(-(_dk[k] - dmin) / ISL_SOFT);
+  const dS = dmin - ISL_SOFT * Math.log(sw), delta = dS - dmin;
+  let hs = 0, best = null, bw = -1;
+  for (let k = 0; k < nb.length; k++) {
+    const d = _dk[k];
+    if (d >= dmin + 4 * ISL_SOFT) continue;
+    const w = Math.exp(-(d - dmin) / ISL_SOFT);
+    if (w > bw) { bw = w; best = nb[k]; }
+    if (wantH) { let h = isleBed(nb[k], x, z, d + delta); if (d + delta < 0) h = poiFlatten(nb[k], x, z, h); hs += w * h; }
+  }
+  _im.d = dS; _im.h = wantH ? hs / sw : 0; _im.a = best;
+  return _im;
+}
 function isleBed(a, x, z, d) {
-  if (d > 0) return -45 * (1 - Math.exp((-d * 0.05) / 45));
+  if (d > 0) return shelfJS(d);
   const qx = x - a.x, qz = z - a.z;
   const th = Math.atan2(qz, qx);
   const R = isleCoastR(a, th), rr = Math.hypot(qx, qz), rho = rr / R, u = -d;
@@ -867,8 +912,9 @@ const SHORE_GLSL = /* glsl */ `
     float lob = 0.6 + 1.8 * fract(A.w);
     return length(q) - A.z * (1.0 + lob * (0.15 * sin(3.0 * th + B.x) + 0.08 * sin(5.0 * th + B.y) + 0.05 * sin(9.0 * th + B.z)));
   }
+  float shelf(float d) { return mix(-45.0 * (1.0 - exp(-d * 0.05 / 45.0)), -45.0, smoothstep(200.0, 350.0, d)); }
   float islBed(vec2 p, vec4 A, vec4 B, vec4 C, float d) {
-    if (d > 0.0) return -45.0 * (1.0 - exp(-d * 0.05 / 45.0));
+    if (d > 0.0) return shelf(d);
     vec2 q = p - A.xy;
     float th = atan(q.y, q.x);
     float rr = length(q);
@@ -905,23 +951,46 @@ const SHORE_GLSL = /* glsl */ `
     }
     return h;
   }
+  // the union of the islands round the camera, softened where two meet so they join into one landmass (the same as islMix in JS)
+  const float ISL_S = 40.0;
+  float islReach(vec4 A) { return A.z * (1.0 + 0.28 * (0.6 + 1.8 * fract(A.w))); }
+  float islMix(vec2 p, bool wantH, out float h) { // returns the softened distance to land; h = the ground there
+    float dk[9];
+    float dmin = 1.0e9;
+    for (int k = 0; k < 9; k++) {
+      dk[k] = 1.0e9;
+      vec4 A = uIslA[k];
+      if (A.w < 0.5) continue;
+      if (length(p - A.xy) - islReach(A) > 400.0) continue;
+      dk[k] = islDist(p, A, uIslB[k]);
+      dmin = min(dmin, dk[k]);
+    }
+    h = -45.0;
+    if (dmin > 1.0e8) return 1.0e9;
+    float sw = 0.0;
+    for (int k = 0; k < 9; k++) if (dk[k] < dmin + 4.0 * ISL_S) sw += exp(-(dk[k] - dmin) / ISL_S);
+    float dS = dmin - ISL_S * log(sw);
+    if (wantH) {
+      float delta = dS - dmin, hs = 0.0;
+      for (int k = 0; k < 9; k++) if (dk[k] < dmin + 4.0 * ISL_S) hs += exp(-(dk[k] - dmin) / ISL_S) * islBed(p, uIslA[k], uIslB[k], uIslC[k], dk[k] + delta);
+      h = hs / sw;
+    }
+    return dS;
+  }
   float shoreDist(vec2 p) { // metres out to sea from the nearest coast (negative on land)
     float d = length(p - ISL_C) - ISL_R;
-    vec4 B; vec4 C; vec4 A = islLookup(p, B, C);
-    if (A.w > 0.5) d = min(d, islDist(p, A, B));
-    return d;
+    float h;
+    return min(d, islMix(p, false, h));
   }
   float shoreCoord(vec2 p) { return -shoreDist(p); }             // grows toward the shore
 
   // Height of the ground: a sand shelf out to sea that deepens to 45 m, a beach and low dunes on land
   float bedHeight(vec2 p) {
     float d = length(p - ISL_C) - ISL_R;
-    vec4 B; vec4 C; vec4 A = islLookup(p, B, C);
-    if (A.w > 0.5) {
-      float di = islDist(p, A, B);
-      if (di < d) return islBed(p, A, B, C, di);
-    }
-    if (d > 0.0) return -45.0 * (1.0 - exp(-d * 0.05 / 45.0)) - harborDredge(p);
+    float h;
+    float di = islMix(p, true, h);
+    if (di < d) return h;
+    if (d > 0.0) return shelf(d) - harborDredge(p);
     float bump = (sin(p.x * 0.11) * sin(p.y * 0.09) * 0.5 + 0.5) * 2.4 * (1.0 - smoothstep(-40.0, 0.0, d));
     return min(-d * 0.06, 5.0) + bump;
   }
@@ -966,20 +1035,13 @@ const SHORE_GLSL = /* glsl */ `
 // ----- the same, in JS -----
 const shoreDistJS = (x, z) => Math.hypot(x - ISL.x, z - ISL.z) - ISL.r;
 function shoreDistAll(x, z) {
-  const d = shoreDistJS(x, z), a = isleCellOf(x, z);
-  return a.type ? Math.min(d, isleDist(a, x, z)) : d;
+  return Math.min(shoreDistJS(x, z), isleMix(x, z, false).d);
 }
 function bedHeightJS(x, z) {
   const d = shoreDistJS(x, z);
-  const a = isleCellOf(x, z);
-  if (a.type) {
-    const di = isleDist(a, x, z);
-    if (di < d) {
-      const h = isleBed(a, x, z, di);
-      return di < 0 ? poiFlatten(a, x, z, h) : h;
-    }
-  }
-  if (d > 0) return -45 * (1 - Math.exp((-d * 0.05) / 45)) - harborDredgeJS(x, z);
+  const m = isleMix(x, z, true);
+  if (m.d < d) return m.h;
+  if (d > 0) return shelfJS(d) - harborDredgeJS(x, z);
   const bump = (Math.sin(x * 0.11) * Math.sin(z * 0.09) * 0.5 + 0.5) * 2.4 * (1 - smooth(-40, 0, d));
   return Math.min(-d * 0.06, 5.0) + bump;
 }
