@@ -1,7 +1,21 @@
-Lantern Tide - version 3.12 (4 Oct 2026)
+Lantern Tide - version 4.0 (5 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 4.0: THE WIDER WORLD
+- A world of about 6.5 km across, made of islands that stream in as you travel (nothing is loaded at start): tropical islands with
+  forests and rivers, volcanoes (smoking, with lava flows), temple islands, swamps with mangroves, cities with lit windows, an
+  airport island with planes landing and taking off, plus islets and big islands of every size. Many places are open sea only. The islands sit on a
+  staggered, jittered layout rather than a grid. Same seed, same world (add ?seed=anything to the address for a different one).
+- Islands rise out of the sea as you approach: the land bends away below the horizon, and distant islands are built in the haze.
+- Some islands have a coast road with power lines, guard rails where the ground falls away, bridges over rivers, and cars (with
+  headlights at night); some have farmland (Coastline's field patchwork, with a barn, silo and hay bales); some have sea cliffs.
+- Hand-made places of interest set into the land: a fishing cabin with a pier, dinghy and lantern; an abandoned campsite with a cold fire
+  and a diary; a forest shrine with a gate, stone lanterns and an offering. Their ground is levelled and blended, paths lead to them,
+  trees keep clear of them, and what you do there is remembered (even in later visits). See WORLD_DESIGN.md.
+- Minimap (M cycles its size; on your left controller in VR), the nearest island is named at its foot. Teleport tab: nearest of each
+  island type and place of interest. New Travel tab: flight on/off and speed, boat speed, and "Return the boat to the dock".
 
 New in 3.12:
 - Drive the boat (ported from Coastline's boat.js): press Y on the left controller (or the Y key) within a few metres of the
