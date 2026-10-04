@@ -185,6 +185,17 @@
   <figure><img loading="lazy" src="img/lake.jpg" alt="An island with a lake"><figcaption><b>A lake inland</b> on a tropical island.</figcaption></figure>
 </section>
 
+<section id="worlds">
+  <h2>Other worlds</h2>
+  <p class="sub">Since 7.1 you can fly to them, and land.</p>
+  <p>In space you have a true position, and your speed grows with your height above the nearest world, so a crossing takes seconds and an arrival is gentle (the flight-speed setting chooses how fast, up to 2,000 km/s). The Moon, the red world, the ice world and a ringed gas giant sit at their real places and sizes. Come within 6 km of one you can land on and the ground is built round you, in four tile sizes, from a height function of the place on the world, so a given spot is always the same land. The gas giant has no ground: you can circle it, and that is all. Each world has its own sky, light, fog and gravity, and the home planet hangs in the sky as a sphere.</p>
+  <div class="grid">
+    <figure><img loading="lazy" src="img/world-moon.png" alt="Craters on the Moon from 6 km up"><figcaption><b>The Moon.</b> Craters of every size, from basins to pits, in low gravity.</figcaption></figure>
+    <figure><img loading="lazy" src="img/world-mars.png" alt="Canyons on the red world"><figcaption><b>The red world.</b> Rust desert, mesas and winding canyons under a pink sky.</figcaption></figure>
+    <figure><img loading="lazy" src="img/world-ice.png" alt="The ice world"><figcaption><b>The ice world.</b> Glaciers and crevasses under a pale blue sky.</figcaption></figure>
+  </div>
+</section>
+
 <section id="controls">
   <h2>Controls</h2>
   <p class="sub">VR on Quest, or keyboard and mouse on a screen.</p>
@@ -223,6 +234,7 @@
     <div class="step"><span class="ver">4.1 – 4.2</span><div class="ask">“add more things from coastline: the ships, the airplanes, the birds, the oil rigs and windmills … roads and cars … farming fields … cliffs”</div><p>Ships, an oil rig, wind turbines, gulls, planes and an airport island, roads with power lines and cars, farmland and sea cliffs. Buildings were fixed to be solid, and roads were settled onto the landscape.</p></div>
     <div class="step"><span class="ver">5.0</span><div class="ask">“make the entire world a sphere like a planet … fly up to space … the sky fade from blue to black slowly”</div><p>The world became a planet: a curve applied to everything, a ray-traced sphere standing in for the far sea, a baked map of the islands for the view from space, an atmosphere, sun, moon, stars and neighbours. Flight became much faster.</p></div>
     <div class="step"><span class="ver">5.1 – 6.2</span><div class="ask">“fix the exposure, everything looks blown out white … the lanterns and lotus should be off by default … four more places: lighthouse, shipwreck, observatory, ruins … a world without edges”</div><p>A white-out that only some graphics cards showed was found by bisecting with switches: the curved-world patch applied to sprites broke Direct3D 11 on NVIDIA cards, so sprites are no longer bent. The review pass added four authored places, discovery messages, richer terrain and vegetation, a calmer minimap, safer diving, and a sky that goes black sooner.</p></div>
+    <div class="step"><span class="ver">7.1</span><div class="ask">“make me much faster when I'm in space and let me fly to other planets … full scale terrain … the red one like mars, the ring one a gas giant, the moon grey with craters”</div><p>Space got a true position and a speed that grows with height, four other worlds at real sizes, tiled ground for the three you can land on, and a fix for a bug where plain materials were curved round the wrong point far from the origin.</p></div>
     <div class="step"><span class="ver">7.0</span><div class="ask">“I want this to be a real sphere … the sun shouldn't move, the planet itself should rotate and I'm on it”</div><p>The world became a cube-sphere of six faces joined at the edges, with one planet size at every height, a map of the whole planet baked from the same functions that stream the islands, lakes, a spinning planet under a fixed sun, and a moon with phases.</p></div>
   </div>
   <div class="callout">

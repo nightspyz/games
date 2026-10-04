@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v7.0 -->
+<!-- Lantern Tide v7.1 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -39,7 +39,7 @@ canvas{display:block;touch-action:none}
 <button id="vr">Enter VR</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// Lantern Tide v7.0: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v7.1: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 (() => {
@@ -50,13 +50,13 @@ const $ = (id) => document.getElementById(id);
 // A point at horizontal distance d from the camera drops by d*d*uCurve. That is done once, in the shared "project_vertex" chunk (and the
 // sprite shader), so every ordinary material follows it; the few hand-written shaders (the sea, the land) do the same by hand. uCurve is
 // very gentle at sea level and rises toward the planet's true curvature as you climb (see updateSpace).
-THREE.ShaderChunk.common += "\nuniform float uCurve;\n";
+THREE.ShaderChunk.common += "\nuniform float uCurve;\nuniform vec3 uCurveCam;\n"; // (the camera, for the curve: three.js only keeps its own cameraPosition up to date for some material types)
 THREE.ShaderChunk.project_vertex = `
   vec4 mvPosition = vec4(transformed, 1.0);
   #ifdef USE_INSTANCING
     mvPosition = instanceMatrix * mvPosition;
   #endif
-  { vec4 wpc = modelMatrix * mvPosition; vec2 cdc = wpc.xz - cameraPosition.xz; wpc.y -= dot(cdc, cdc) * uCurve; mvPosition = viewMatrix * wpc; }
+  { vec4 wpc = modelMatrix * mvPosition; vec2 cdc = wpc.xz - uCurveCam.xz; wpc.y -= dot(cdc, cdc) * uCurve; mvPosition = viewMatrix * wpc; }
   gl_Position = projectionMatrix * mvPosition;
 `;
 // (sprites are left as three.js makes them: bending their vertex shader whited the picture out on NVIDIA cards under Direct3D 11)
@@ -69,6 +69,7 @@ THREE.ShaderChunk.project_vertex = `
       return (sh, r) => {
         if (f) f.call(this, sh, r);
         if (!sh.uniforms.uCurve) sh.uniforms.uCurve = sharedCurve;
+        if (!sh.uniforms.uCurveCam) sh.uniforms.uCurveCam = curveCam;
       };
     },
     set(f) { this._obc = f; },
@@ -82,6 +83,7 @@ THREE.ShaderChunk.project_vertex = `
 const FACE_CELLS = 32, CELL_M = 1300;
 const FACE_W = FACE_CELLS * CELL_M; // one face is 41.6 km across ...
 const PLANET_R = FACE_W / (Math.PI / 2); // ... a quarter of the way round, so the planet is about 26.5 km in radius (166 km round)
+const curveCam = { value: new THREE.Vector3() };
 const sharedCurve = { value: 1 / (2 * PLANET_R) }; // things drop by distance squared over twice the radius: the sphere's own curve
 
 // ===== Helpers =====
@@ -127,6 +129,7 @@ const shared = {
   uMoonDir: { value: new THREE.Vector3(0, -1, 0) },
   uMoonI: { value: 1 }, // the player's moon brightness setting
   uMoonPhase: { value: 0.5 }, // how much of the moon is lit
+  uCloudWorld: { value: 1 }, // 0 on the other worlds: no cloud in their skies
   uSpace: { value: 0 }, // how thin the air is (0 at sea level, 1 in space)
   uIslA: { value: Array.from({ length: 9 }, () => new THREE.Vector4()) },
   uIslB: { value: Array.from({ length: 9 }, () => new THREE.Vector4()) },
@@ -170,6 +173,7 @@ const SKY_GLSL = /* glsl */ `
   uniform vec3 uMoonDir;
   uniform float uMoonI;
   uniform float uMoonPhase;
+  uniform float uCloudWorld;
   uniform float uSpace;
   uniform float uUnder;
   uniform vec3 uUnderCol;
@@ -422,7 +426,7 @@ const sky = new THREE.Mesh(
           float cir = fbm(shp * 1.6 + fbm(shp * 0.8) * 1.5);
           float cirrus = smoothstep(0.52, 0.8, cir) * smoothstep(0.03, 0.3, d.y) * (1.0 - 0.7 * uCloudCover);
           vec3 cc = mix(vec3(1.0), uSunColor * vec3(1.0, 0.82, 0.68), uSunset) * (0.12 + 0.88 * uLightLevel) * (1.0 - 0.5 * uCloudDark);
-          col = mix(col, cc, cirrus * 0.4 * (1.0 - uFog) * (1.0 - smoothstep(0.05, 0.4, uSpace)));
+          col = mix(col, cc, cirrus * 0.4 * (1.0 - uFog) * (1.0 - smoothstep(0.05, 0.4, uSpace)) * uCloudWorld);
         }
         float cloudAlpha = 0.0;
         // Clouds and god rays are drawn into small sky maps, a strip at a time (see skyCache), and read back here with a
@@ -430,7 +434,7 @@ const sky = new THREE.Mesh(
         vec2 suv = vec2(atan(d.x, -d.z) / 6.2831853 + 0.5, sqrt(clamp(asin(clamp(d.y, 0.0, 1.0)) / 1.5707963, 0.0, 1.0)));
         if (uCloudOn > 0.5 && d.y > 0.004) {
           vec2 px = 1.0 / uCloudRes;
-          float thin = 1.0 - smoothstep(0.05, 0.4, uSpace);
+          float thin = (1.0 - smoothstep(0.05, 0.4, uSpace)) * uCloudWorld;
           vec4 c = (texture2D(uCloudTex, suv) * 0.36
                  + (texture2D(uCloudTex, suv + px * vec2(1.4, 1.4)) + texture2D(uCloudTex, suv + px * vec2(-1.4, 1.4))
                   + texture2D(uCloudTex, suv + px * vec2(1.4, -1.4)) + texture2D(uCloudTex, suv + px * vec2(-1.4, -1.4))) * 0.16) * thin;
@@ -676,6 +680,9 @@ function cellFace(cx, cz) {
   return -1;
 }
 let curFace = 0; // the face you are on
+let curBody = null; // the other world you are standing on (null: home)
+let GRAV = 9.8;
+const BODY_OFFSET = 0; // the other worlds' charts are laid at the origin (the camera stays near zero, so the GPU keeps its precision); the home world's things are hidden while you are away
 function faceAt(x, z) { // the face whose chart this point belongs to
   let best = 0, bd = 1e12;
   for (let f = 0; f < 6; f++) { const d = Math.max(Math.abs(x - FACE_C[f][0]), Math.abs(z - FACE_C[f][1])); if (d < bd) (bd = d), (best = f); }
@@ -1042,6 +1049,7 @@ function waveDisp(x0, z0, t, out) {
 }
 // Height of the sea at a point: find the grid point that the waves push onto it, then read its height
 function waveHeight(x, z, t) {
+  if (curBody) return -1e5; // (no sea out there)
   let x0 = x, z0 = z;
   for (let i = 0; i < 3; i++) {
     waveDisp(x0, z0, t, _d);
@@ -2194,7 +2202,7 @@ const land = new THREE.Mesh(
 );
 land.frustumCulled = false;
 scene.add(land);
-const groundY = (x, z) => bedHeightJS(x, z);
+const groundY = (x, z) => (curBody ? bodyGroundY(x, z) : bedHeightJS(x, z));
 
 // ----- Palms: a curved trunk and pinnate fronds (a rib with leaflets down both sides) -----
 function buildPalm(m, x, z, h, leanAmt, leanDir) {
@@ -2774,16 +2782,43 @@ const tmpColor = new THREE.Color();
 // fixed direction seen from wherever you stand on the turning planet. The moon circles the planet slowly (about every eight and a half
 // days), lit by that same sun, so its phases are simply where it is in relation to the sun. Directions below are first worked out in
 // "inertial" space (the stars), then turned into your local frame (east, up, south) from your place on the planet.
-const PF = { p: new THREE.Vector3(0, 1, 0), tx: new THREE.Vector3(1, 0, 0), tz: new THREE.Vector3(0, 0, 1) }; // your local frame, in planet space
+const PF = { p: new THREE.Vector3(0, 1, 0), tx: new THREE.Vector3(1, 0, 0), tz: new THREE.Vector3(0, 0, 1) }; // your local frame on the home planet, in planet space
 const SUN_W = new THREE.Vector3(0, Math.sin(0.25), Math.cos(0.25)); // the sun, a little north of the equator (the planet's axis is tilted)
-const MOON_PERIOD_H = 24 * 8.5, MOON_INCL = 0.09;
+const MOON_PERIOD_H = 24 * 8.5, MOON_INCL = 0.09, MOON_DIST = 300000;
 const _mi = new THREE.Vector3(), _ml = new THREE.Vector3();
-function updatePlayerFrame() { faceFrame(curFace, player.x - FACE_C[curFace][0], player.z - FACE_C[curFace][1], PF.p, PF.tx, PF.tz); }
-function inertialToLocal(v, out) {
-  const c = Math.cos(game.spin), sn = Math.sin(game.spin);
-  const px = v.x * c - v.z * sn, pz = v.x * sn + v.z * c, py = v.y; // (undo the planet's turn, then read off along your own axes)
-  return out.set(px * PF.tx.x + py * PF.tx.y + pz * PF.tx.z, px * PF.p.x + py * PF.p.y + pz * PF.p.z, px * PF.tz.x + py * PF.tz.y + pz * PF.tz.z);
+// The scene's own axes (east, up, south for where you stand), written in inertial space; and where you are in inertial space (the home planet's
+// centre is the origin). Everything far away (the sun, the moon, the other planets) is worked out in inertial space and then turned into the scene.
+const SQ = { ex: new THREE.Vector3(1, 0, 0), ey: new THREE.Vector3(0, 1, 0), ez: new THREE.Vector3(0, 0, 1) };
+const pIn = new THREE.Vector3(0, PLANET_R, 0);
+const toScene = (v, out) => out.set(v.dot(SQ.ex), v.dot(SQ.ey), v.dot(SQ.ez));
+const toInertial = (v, out) => out.set(0, 0, 0).addScaledVector(SQ.ex, v.x).addScaledVector(SQ.ey, v.y).addScaledVector(SQ.ez, v.z);
+function spinVec(v, ang, out) { const c = Math.cos(ang), sn = Math.sin(ang); const x = v.x * c + v.z * sn, z = -v.x * sn + v.z * c; return out.set(x, v.y, z); } // planet-fixed -> inertial for a turn of ang
+// the other worlds (the home planet is the origin; the moon circles it; the rest keep their places)
+const BODIES = {
+  moon: { id: "moon", name: "the Moon", kind: "moon", R: 11000, g: 1.62, landable: true, skyDark: 1, color: 0xb0aca4, pos: new THREE.Vector3(), prev: new THREE.Vector3() },
+  mars: { id: "mars", name: "the red world", kind: "mars", R: 22000, g: 3.7, landable: true, skyDark: 0.1, color: 0xc2552f, pos: new THREE.Vector3(0.55, 0.45, -0.7).normalize().multiplyScalar(1500000) },
+  giant: { id: "giant", name: "the gas giant", kind: "giant", R: 100000, g: 0, landable: false, skyDark: 0, color: 0xe0c9a0, pos: new THREE.Vector3(-0.65, 0.3, 0.7).normalize().multiplyScalar(4000000) },
+  ice: { id: "ice", name: "the ice world", kind: "ice", R: 18000, g: 2.6, landable: true, skyDark: 0.06, color: 0x9fc8e8, pos: new THREE.Vector3(0.2, 0.75, 0.62).normalize().multiplyScalar(2200000) },
+};
+const BODY_LIST = [BODIES.moon, BODIES.mars, BODIES.giant, BODIES.ice];
+const sp = { on: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), ex: new THREE.Vector3(1, 0, 0), ey: new THREE.Vector3(0, 1, 0), ez: new THREE.Vector3(0, 0, 1) };
+const bodyChart = { p: new THREE.Vector3(0, 1, 0), tx: new THREE.Vector3(1, 0, 0), tz: new THREE.Vector3(0, 0, 1) }; // the flat chart of the world you stand on
+const _cf = new THREE.Vector3(), _cf2 = new THREE.Vector3();
+function updatePlayerFrame() { if (!sp.on && !curBody) faceFrame(curFace, player.x - FACE_C[curFace][0], player.z - FACE_C[curFace][1], PF.p, PF.tx, PF.tz); }
+// where the scene's axes and you are in inertial space, for this frame
+function computeFrame() {
+  if (sp.on) { SQ.ex.copy(sp.ex); SQ.ey.copy(sp.ey); SQ.ez.copy(sp.ez); pIn.copy(sp.pos); return; }
+  if (curBody) {
+    spinVec(bodyChart.tx, game.spin, SQ.ex); spinVec(bodyChart.p, game.spin, SQ.ey); spinVec(bodyChart.tz, game.spin, SQ.ez);
+    _cf.copy(bodyChart.p).multiplyScalar(curBody.R + player.y).addScaledVector(bodyChart.tx, player.x - BODY_OFFSET).addScaledVector(bodyChart.tz, player.z - BODY_OFFSET);
+    spinVec(_cf, game.spin, _cf2);
+    pIn.copy(curBody.pos).add(_cf2);
+    return;
+  }
+  spinVec(PF.tx, game.spin, SQ.ex); spinVec(PF.p, game.spin, SQ.ey); spinVec(PF.tz, game.spin, SQ.ez);
+  pIn.copy(SQ.ey).multiplyScalar(PLANET_R + player.y);
 }
+function inertialToLocal(v, out) { return toScene(v, out); }
 function playerLon() { return Math.atan2(PF.p.x, PF.p.z); }
 const hoursFromSpin = () => ((((12 + ((playerLon() + game.spin) * 24) / (Math.PI * 2)) % 24) + 24) % 24); // local solar time where you stand
 const spinForHour = (h) => ((h - 12) / 24) * Math.PI * 2 - playerLon();
@@ -2792,11 +2827,14 @@ function sunDirection(hours, out) {
 }
 const lastEnv = { light: 1, lightLevel: 1, lampsOn: 0 };
 function applyEnvironment(hours) {
+  if (curBody || sp.on) wx.cover = wx.overcast = wx.rain = wx.storm = wx.fog = 0; // (no weather out there)
   const sunDir = sunDirection(hours, shared.uSunDir.value);
   {
     const mu = 1.2 + (game.t / MOON_PERIOD_H) * Math.PI * 2;
     _mi.set(Math.sin(mu) * Math.cos(MOON_INCL), Math.sin(mu) * Math.sin(MOON_INCL), Math.cos(mu));
-    inertialToLocal(_mi, shared.uMoonDir.value).normalize();
+    BODIES.moon.prev.copy(BODIES.moon.pos);
+    BODIES.moon.pos.copy(_mi).multiplyScalar(MOON_DIST);
+    toScene(_ml.copy(BODIES.moon.pos).sub(pIn), shared.uMoonDir.value).normalize(); // (the moon's direction from where you are)
     shared.uMoonPhase.value = 0.5 * (1 - _mi.dot(SUN_W)); // the lit fraction of the moon: 0 new, 1 full
   }
   const e = sunDir.y;
@@ -2822,6 +2860,13 @@ function applyEnvironment(hours) {
     horizon.lerp(PALETTE.flash, flash * 0.5);
   }
 
+  if (curBody) {
+    // the sky of another world
+    const k = curBody.kind, L = lightLevel;
+    if (k === "mars") { top.setRGB(0.4 * L + 0.02, 0.26 * L + 0.015, 0.21 * L + 0.015); horizon.setRGB(0.82 * L + 0.02, 0.56 * L + 0.015, 0.4 * L + 0.015); }
+    else if (k === "ice") { top.setRGB(0.5 * L + 0.02, 0.66 * L + 0.02, 0.84 * L + 0.03); horizon.setRGB(0.82 * L + 0.02, 0.9 * L + 0.02, 0.97 * L + 0.03); }
+    else { top.setRGB(0, 0, 0); horizon.setRGB(0, 0, 0); }
+  }
   {
     // high up the sky thins to black
     const sd = spaceState.dark;
@@ -2835,7 +2880,7 @@ function applyEnvironment(hours) {
   shared.uSunVis.value = smooth(-0.04, 0.02, e) * (1 - 0.9 * wx.overcast) * (1 - 0.75 * wx.fog);
   shared.uFog.value = wx.fog;
   shared.uStars.value = Math.max(night * (1 - wx.overcast) * (1 - wx.fog), smooth(0.3, 0.85, spaceState.dark));
-  shared.uAurora.value = opts.aurora * night * (1 - wx.cover) * (1 - wx.fog) * (0.75 + 0.25 * Math.sin(shared.uTime.value * 0.03));
+  shared.uAurora.value = (curBody ? 0 : 1) * (1 - smooth(150, 1800, spaceState.alt)) * opts.aurora * night * (1 - wx.cover) * (1 - wx.fog) * (0.75 + 0.25 * Math.sin(shared.uTime.value * 0.03));
   shared.uCloudCover.value = wx.cover * (1 - spaceState.cloudFade);
   // god rays are strongest with a low sun partly hidden by broken cloud
   shared.uRays.value = (1 - spaceState.cloudFade) * smooth(-0.12, 0.06, e) * (1 - 0.55 * smooth(0.3, 0.9, e)) * (0.3 + 0.7 * wx.cover) * (1 - 0.75 * smooth(0.55, 0.95, wx.overcast)) * (1 - wx.fog);
@@ -2859,18 +2904,32 @@ function applyEnvironment(hours) {
   landUniforms.uWet.value = wx.rain;
   scene.fog.color.copy(horizon);
   renderer.setClearColor(horizon);
+  if (curBody) {
+    const fk = curBody.kind;
+    scene.fog.near = 400;
+    scene.fog.far = fk === "moon" ? 1e7 : fk === "mars" ? 30000 : 20000;
+    landUniforms.uFogN.value = scene.fog.near;
+    landUniforms.uFogF.value = scene.fog.far;
+  }
 
   sunLight.color.copy(shared.uSunColor.value);
   sunLight.intensity = 1.1 * smooth(-0.02, 0.2, e) * (1 - 0.75 * wx.overcast);
   sunLight.intensity *= cloudShadowJS(player.x, 0, player.z, sunDir, wx.cover, weather.cloudOffset) * opts.sunI;
   shared.uSunColor.value.multiplyScalar(opts.sunI);
-  shared.uMoonI.value = opts.moonI;
+  shared.uMoonI.value = curBody ? 0 : opts.moonI;
   sunLight.position.copy(sunDir).multiplyScalar(100);
   moonLight.position.copy(shared.uMoonDir.value).multiplyScalar(100);
   moonLight.intensity = 0.3 * night * (1 - wx.overcast) * opts.moonI * (0.1 + 0.9 * shared.uMoonPhase.value);
   hemiLight.color.copy(horizon).lerp(top, 0.5);
   hemiLight.groundColor.copy(waterUniforms.uDeep.value).multiplyScalar(lightLevel);
   hemiLight.intensity = (0.25 + 0.45 * light) * (1 - 0.35 * wx.overcast) + flash * 1.5;
+  if (curBody) {
+    // little air to scatter light into the shadows: a faint fill, tinted by the sky
+    hemiLight.color.copy(curBody.kind === "moon" ? tmpColor.setRGB(0.5, 0.52, 0.58) : horizon).lerp(top, 0.3);
+    hemiLight.groundColor.setRGB(0.12, 0.1, 0.1);
+    hemiLight.intensity = curBody.kind === "moon" ? 0.32 : 0.5;
+    moonLight.intensity = 0;
+  }
 
   // Lamps come on at dusk and in dark weather
   const lampsOn = Math.max(1 - smooth(-0.05, 0.1, e), wx.overcast * 0.8 * (1 - day * 0.5));
@@ -5195,6 +5254,7 @@ player.grounded = true;
 player.under = false;
 player.waterSm = 0;
 const surfaceAt = (x, z) => {
+  if (curBody) return bodyGroundY(x, z);
   // the highest thing you could stand on here
   let y = groundY(x, z);
   const r = rockSurfaceAt(x, z);
@@ -5208,6 +5268,7 @@ const surfaceAt = (x, z) => {
   return y;
 };
 function blocked(x, z) {
+  if (curBody) return surfaceAt(x, z) - player.y > STEP_UP; // (the home world's walls and rocks are not here)
   if (boatDeckAt(x, z) === "cabin") return true;
   if (player.y < 150 && worldBoundsEdge(x, z) < 30) return true; // the edge of the world (you can fly over it)
   if (!player.swim && surfaceAt(x, z) - player.y > STEP_UP) return true; // too high to step up: jump
@@ -5328,7 +5389,7 @@ function updatePlayer(dt) {
     }
     if (flying) player.vy = player.fv.y;
     else {
-      player.vy -= 9.8 * dt;
+      player.vy -= GRAV * dt;
       // let go and you do not drop like a stone: you float down, slower the nearer the ground (and never faster than a skydiver)
       player.vy = Math.max(player.vy, -Math.min(70, 2.5 + 0.9 * Math.max(0, player.y - here)));
     }
@@ -6573,6 +6634,7 @@ function setRandomWeather() {
 const setTime = (h) => {
   // set the time of day where you stand: the planet is turned to match
   const hh = ((h % 24) + 24) % 24;
+  if (curBody || sp.on) { game.hours = hh; return; } // (the clock is the home world's)
   updatePlayerFrame();
   game.spin = spinForHour(hh);
   game.hours = hh;
@@ -6580,6 +6642,7 @@ const setTime = (h) => {
 };
 // ----- teleport: key places on and around the island -----
 function teleportTo(x, z, lookX, lookZ) {
+  if (curBody || sp.on) exitToEarth();
   player.x = x;
   player.z = z;
   player.y = surfaceAt(x, z);
@@ -6635,6 +6698,7 @@ const TELEPORTS = [
     else teleportTo(ch.deck.x, ch.deck.z, best.x, best.z); // onto the first turbine's landing platform
   }]),
   ["Island hilltop", () => teleportTo(ISL.x, ISL.z, ISL.x, ISL.z + ISL.r)],
+  ...[["moon", "the Moon"], ["mars", "the red world"], ["ice", "the ice world"], ["giant", "the gas giant"]].map(([id, name]) => ["Fly to " + name, () => warpToBody(BODIES[id])]),
   ...[[1, "Tropical island"], [2, "Volcano"], [3, "Temple island"], [4, "Swamp"], [5, "City island"], [6, "Airport island"]].map(([ty, name]) => ["Nearest: " + name.toLowerCase(), () => {
     const a = nearestIsland(ty, player.x, player.z);
     a ? teleportToIsland(a) : flashHint("No " + name.toLowerCase() + " in this world");
@@ -9643,51 +9707,70 @@ function bodyMaterial(base, bands) {
         vec3 alb = uBase * (0.65 + 0.5 * f) * (1.0 - crater);
         if (uBands > 0.5) alb = mix(uBase, uBase * vec3(1.0, 0.8, 0.6), 0.5 + 0.5 * sin(vO.y * uBands + f * 3.0));
         float d = max(dot(normalize(vN), uSun), 0.0);
-        vec3 c = alb * (d * vec3(1.0, 0.97, 0.9) + 0.025);
+        vec3 c = alb * (d * vec3(1.0, 0.97, 0.9) + 0.05);
         gl_FragColor = vec4((1.0 - exp(-c * 1.4)) * uOpacity, 1.0);
       }
     `,
   });
 }
-const moonMat = bodyMaterial(0xb0aca4, 0), moonMesh = new THREE.Mesh(new THREE.SphereGeometry(3300, 48, 32), moonMat);
+const moonMat = bodyMaterial(0xb0aca4, 0), moonMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 72, 52), moonMat);
 moonMesh.renderOrder = -0.94;
 spaceGroup.add(moonMesh);
+// the other worlds, drawn at their true places and sizes (pulled in along the same line, and shrunk to match, if they lie beyond the camera's reach)
 const neighbours = [
-  { mat: bodyMaterial(0xc2552f, 0), r: 2200, dir: [0.55, 0.45, -0.7], dist: 420000 },
-  { mat: bodyMaterial(0xe0c9a0, 18), r: 9000, dir: [-0.65, 0.3, 0.7], dist: 640000 },
-  { mat: bodyMaterial(0x7fb4d8, 0), r: 3600, dir: [0.2, 0.75, 0.62], dist: 520000 },
-].map((n, i) => {
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(n.r, 40, 28), n.mat);
-  mesh.userData.d = new THREE.Vector3(...n.dir).normalize().multiplyScalar(n.dist);
+  { mat: bodyMaterial(0xc2552f, 0), body: BODIES.mars },
+  { mat: bodyMaterial(0xe0c9a0, 18), body: BODIES.giant },
+  { mat: bodyMaterial(0x9fc8e8, 0), body: BODIES.ice },
+].map((n) => {
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 72, 52), n.mat);
+  mesh.userData.body = n.body;
   mesh.renderOrder = -0.96;
   spaceGroup.add(mesh);
   return mesh;
 });
 {
-  const ring = new THREE.Mesh(new THREE.RingGeometry(12500, 21000, 80), new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide, ...bgBlend }));
+  const ring = new THREE.Mesh(new THREE.RingGeometry(1.45, 2.3, 96), new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide, ...bgBlend }));
   ring.rotation.x = 1.25;
   ring.renderOrder = -0.955;
   neighbours[1].add(ring);
   neighbours[1].userData.ring = ring;
 }
-let _camFar = 12000;
+let _camFar = 12000, _camNear = 0.05;
+const _sc = new THREE.Vector3(), _sc2 = new THREE.Vector3();
+// put a far world where it really is, as seen from the camera: or, if it lies beyond the camera's reach, further in along the same line and smaller to match
+function bgPlace(mesh, pt, R, F) {
+  toScene(_sc2.copy(pt).sub(pIn), _sc);
+  const d = Math.max(_sc.length(), 1), k = d > F ? F / d : 1;
+  mesh.position.copy(camPos).addScaledVector(_sc, k);
+  mesh.scale.setScalar(R * k);
+  mesh.renderOrder = -0.99 + 0.08 * (1 - Math.min(1, d / 4.5e6));
+  return d;
+}
+function homeAltitude() {
+  if (!sp.on && !curBody) return Math.max(0, camPos.y);
+  return Math.max(0, pIn.length() - PLANET_R);
+}
 function updateSpace(dt) {
-  const alt = Math.max(0, camPos.y);
+  const onEarth = !sp.on && !curBody;
+  const alt = homeAltitude();
   spaceState.alt = alt;
-  spaceState.dark = smooth(120, 1600, alt); // the sky goes from blue to black slowly, and is black in space
-  spaceState.cloudFade = smooth(250, 800, alt); // the clouds lie low: climb through them and they are beneath you
+  spaceState.dark = onEarth ? smooth(120, 1600, alt) : sp.on ? 1 : curBody.skyDark; // the sky goes from blue to black slowly, and is black in space
+  spaceState.cloudFade = onEarth ? smooth(250, 800, alt) : 1; // the clouds lie low: climb through them and they are beneath you
   spaceState.fade = 0;
-  spaceState.vis = smooth(600, 1600, alt);
-  const k = 1 / (2 * PLANET_R); // (the planet is one size: its curve does not change as you climb)
+  spaceState.vis = onEarth ? smooth(600, 1600, alt) : 1;
   shared.uSpace.value = spaceState.dark;
-  shared.uSeaFade.value = smooth(60, 700, alt); // the near sea (a square of detailed water) gives way to the planet's own sea as you climb
-  worldRoot.visible = alt < 8000; // (high above, the baked planet map stands in for the islands)
+  shared.uCloudWorld.value = curBody ? 0 : 1;
+  shared.uSeaFade.value = onEarth ? smooth(60, 700, alt) : 1; // the near sea (a square of detailed water) gives way to the planet's own sea as you climb
+  worldRoot.visible = onEarth && alt < 8000; // (high above, the baked planet map stands in for the islands)
   water.visible = shared.uSeaFade.value < 0.995;
-  const Rs = 1 / (2 * k);
-  // a deeper view distance as you climb
-  const far = alt > 1500 ? 900000 : 12000;
-  if (far !== _camFar) { _camFar = far; camera.far = far; camera.updateProjectionMatrix(); }
-  sky.visible = sky.visible && alt < 3000;
+  // how far we can see: far in space, a few tens of km on a world's surface
+  let far, near;
+  if (sp.on) { far = 1e7; near = 5; }
+  else if (curBody) { far = 80000; near = 0.05; }
+  else { far = alt > 1500 ? 900000 : 12000; near = 0.05; }
+  if (far !== _camFar || near !== _camNear) { _camFar = far; _camNear = near; camera.far = far; camera.near = near; camera.updateProjectionMatrix(); }
+  if (onEarth) sky.visible = sky.visible && alt < 3000;
+  else { sky.visible = !!curBody; farOcean.visible = false; foamLayer.visible = false; }
   // bake the map a little each frame until it is done
   if (mapBake.gen) {
     const t0 = performance.now();
@@ -9695,17 +9778,18 @@ function updateSpace(dt) {
     while (performance.now() - t0 < budget) if (mapBake.gen.next().done) { mapBake.gen = null; break; }
   }
   planetU.uMapReady.value = mapBake.ready;
-  // the sphere: centred under you, a little below the sea (so it never touches the water), turning beneath you as you travel
+  // the home planet as a sphere traced in the shader: centred under you, a little below the sea (so it never touches the water), and turning with its own spin
+  const Rs = PLANET_R;
   const C = planetU.uC.value;
-  C.set(camPos.x, -Rs - 3, camPos.z);
+  if (onEarth) C.set(camPos.x, -Rs - 3, camPos.z);
+  else C.copy(camPos).sub(toScene(pIn, _sc));
   planetU.uRs.value = Rs;
-  faceFrame(curFace, player.x - FACE_C[curFace][0], player.z - FACE_C[curFace][1], planetU.uTP.value, planetU.uTX.value, planetU.uTZ.value);
+  spinVec(SQ.ex, -game.spin, planetU.uTX.value); spinVec(SQ.ey, -game.spin, planetU.uTP.value); spinVec(SQ.ez, -game.spin, planetU.uTZ.value);
   planetU.uSpaceCover.value = clamp(wx.cover + 0.2, 0, 1);
   planet.position.copy(camPos);
-  planet.visible = camPos.y > 150; // (only seen from the air: at sea level the water's own fade into the haze is the horizon, and the planet's huge radius is too imprecise for some GPUs to trace)
-  const ho = ATMO_H;
-  const Ra = Rs + ho;
-  atmosphere.visible = alt > 500 && Rs < 60000;
+  planet.visible = !onEarth || camPos.y > 150; // (from the air, or from another world)
+  const Ra = Rs + ATMO_H;
+  atmosphere.visible = alt > 500 && !curBody;
   atmosphere.position.copy(C);
   atmosphere.scale.setScalar(Ra);
   atmoU.uRp.value = Rs;
@@ -9713,18 +9797,29 @@ function updateSpace(dt) {
   atmoU.uOpacity.value = smooth(300, 1400, alt);
   spaceGroup.visible = spaceState.vis > 0.001;
   if (spaceGroup.visible) {
-    const v = spaceState.vis, S = shared.uSunDir.value, M = shared.uMoonDir.value;
+    const v = spaceState.vis, S = shared.uSunDir.value, F = _camFar * 0.8;
+    // stars: bright in the dark, faint against a bright sky
+    const starK = curBody && curBody.kind !== "moon" ? 0.2 + 0.8 * shared.uStars.value : 1;
     starField.position.copy(camPos);
-    starField.material.color.setScalar(v);
-    sunCore.position.copy(camPos).addScaledVector(S, 300000);
+    starField.scale.setScalar(Math.min(1, F / 500000));
+    starField.material.color.setScalar(v * starK);
+    const dS = Math.min(300000, F), kS = dS / 300000;
+    sunCore.position.copy(camPos).addScaledVector(S, dS);
     sunGlow.position.copy(sunCore.position);
+    sunCore.scale.setScalar(26000 * kS);
+    sunGlow.scale.setScalar(150000 * kS);
     sunCore.material.color.setRGB(v, 0.96 * v, 0.82 * v);
     sunGlow.material.color.setRGB(0.55 * v, 0.38 * v, 0.2 * v);
-    moonMesh.position.copy(C).addScaledVector(M, 110000);
+    // the other worlds
+    const mb = BODIES.moon;
+    const dm = bgPlace(moonMesh, mb.pos, mb.R, F);
+    moonMesh.visible = !(curBody === mb && dm - mb.R < 20000);
     planetU.uMoonP.value.copy(moonMesh.position);
     moonMat.uniforms.uOpacity.value = v;
     for (const n of neighbours) {
-      n.position.copy(camPos).add(n.userData.d);
+      const b = n.userData.body;
+      const d = bgPlace(n, b.pos, b.R, F);
+      n.visible = !(curBody === b && d - b.R < 20000);
       n.material.uniforms.uOpacity.value = v;
       if (n.userData.ring) n.userData.ring.material.color.setRGB(0.85 * v * 0.6, 0.78 * v * 0.6, 0.62 * v * 0.6);
     }
@@ -9887,8 +9982,10 @@ function drawMinimap() {
 function updateMinimap(dt) {
   mapTimer -= dt;
   const range = MAP_RANGES[opts.map][1];
-  mapDom.style.display = range && !renderer.xr.isPresenting ? "block" : "none";
-  mapPanel.visible = !!range && renderer.xr.isPresenting && !menu.open;
+  const homeWorld = !sp.on && !curBody;
+  mapDom.style.display = range && !renderer.xr.isPresenting && homeWorld ? "block" : "none";
+  mapPanel.visible = !!range && renderer.xr.isPresenting && !menu.open && homeWorld;
+  if (!homeWorld) return;
   if (!range || mapTimer > 0) return;
   mapTimer = renderer.xr.isPresenting ? 0.25 : 0.12;
   drawMinimap();
@@ -9949,6 +10046,303 @@ function updateFace() {
   screenFade = Math.max(screenFade, 0.5);
 }
 
+// ===== Other worlds: flying between them, and walking on them =====
+// In space you have a true position (in inertial space, with the home planet's centre at the origin) and fly at a speed that grows with your height
+// above the nearest world, so a crossing takes seconds and an arrival is gentle. Come within a few km of the moon, the red world or the ice world
+// and you land: that world's ground is built round you in tiles of four sizes (fine near, coarse far) from a height function of the place on the
+// world, so the same spot is always the same land. The gas giant has no ground: you can circle it, and that is all.
+const SPACE_SPEEDS = [[0.5, 20000], [1.5, 60000], [4, 200000], [10, 600000], [25, 2000000]]; // per flight-speed setting: how fast it grows with height, and the top speed (m/s)
+const SPACE_ENTER = 30000, SPACE_EXIT = 20000, LAND_ALT = 6000, BODY_EXIT = 25000;
+let earthSave = null;
+const _bp = new THREE.Vector3(), _t1 = new THREE.Vector3(), _t2 = new THREE.Vector3(), _t3 = new THREE.Vector3(), _fw = new THREE.Vector3(), _want = new THREE.Vector3(), _right = new THREE.Vector3(), _qq = new THREE.Quaternion();
+const lookDirScene = (out) => { const cp = Math.cos(pitch); return out.set(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp); };
+const setLookFromScene = (v) => { yaw = Math.atan2(-v.x, -v.z); pitch = Math.asin(clamp(v.y, -1, 1)); };
+
+// ----- the lands -----
+function bfbm(x, y, z, o) { let v = 0, a = 0.5; for (let i = 0; i < o; i++) { v += a * cloudNoise3(x, y, z); x = x * 2.02 + 17.1; y = y * 2.02 + 9.2; z = z * 2.02 + 4.7; a *= 0.5; } return v; }
+const CRATER_SIZES = [3200, 1100, 380, 130];
+function moonH(P) {
+  let h = Math.max(0, bfbm(P.x / 9000 + 13, P.y / 9000, P.z / 9000, 4) - 0.55) * 2 * Math.max(0, bfbm(P.x / 9000 + 13, P.y / 9000, P.z / 9000, 4) - 0.55) * 2600 + (bfbm(P.x / 7000 + 3.1, P.y / 7000, P.z / 7000, 5) - 0.5) * 260 + (bfbm(P.x / 900, P.y / 900 + 7, P.z / 900, 3) - 0.5) * 14;
+  for (let k = 0; k < 4; k++) {
+    // one possible crater in each cube of the lattice, lying wholly inside it
+    const S = CRATER_SIZES[k], ci = Math.floor(P.x / S), cj = Math.floor(P.y / S), ck = Math.floor(P.z / S), sd = ck + k * 977;
+    if (hash3(ci, cj, sd) > 0.6) continue;
+    const r = S * (0.14 + 0.2 * hash3(ci, cj, sd + 1)), f = r / S;
+    const cx = (ci + f + (1 - 2 * f) * hash3(ci, cj, sd + 2)) * S, cy = (cj + f + (1 - 2 * f) * hash3(ci, cj, sd + 3)) * S, cz = (ck + f + (1 - 2 * f) * hash3(ci, cj, sd + 4)) * S;
+    const dx = P.x - cx, dy = P.y - cy, dz = P.z - cz, q = Math.sqrt(dx * dx + dy * dy + dz * dz) / r;
+    if (q < 1.5) {
+      if (q < 1) h -= r * 0.3 * (1 - q * q);
+      const rq = (q - 1) / 0.2;
+      h += r * 0.07 * Math.exp(-rq * rq);
+    }
+  }
+  return h;
+}
+function marsH(P) {
+  const hills = (bfbm(P.x / 9000 + 11, P.y / 9000, P.z / 9000, 5) - 0.5) * 420;
+  const m = bfbm(P.x / 5200 + 5, P.y / 5200 + 2, P.z / 5200, 3);
+  const mesa = 70 * smooth(0.45, 0.52, m) + 60 * smooth(0.6, 0.67, m); // flat-topped mesas rising in steps
+  const cn = Math.abs(bfbm(P.x / 3800 + 9, P.y / 3800, P.z / 3800 + 1, 3) - 0.5);
+  const canyon = -150 * (1 - smooth(0, 0.035, cn)); // winding canyons
+  const dune = 6 * (1 - Math.abs(2 * cloudNoise3(P.x / 80, P.y / 80, P.z / 80) - 1));
+  const mt = Math.max(0, bfbm(P.x / 15000 + 31, P.y / 15000, P.z / 15000, 4) - 0.52) * 2; // ranges of mountains
+  return hills + mesa + canyon + dune + mt * mt * 3200 + (bfbm(P.x / 30, P.y / 30, P.z / 30, 2) - 0.5) * 3;
+}
+function iceH(P) {
+  const cn = Math.abs(cloudNoise3(P.x / 300 + 4, P.y / 300, P.z / 300) - 0.5);
+  const mt = Math.max(0, bfbm(P.x / 12000 + 7, P.y / 12000, P.z / 12000, 4) - 0.5) * 2;
+  return (bfbm(P.x / 6500 + 21, P.y / 6500, P.z / 6500, 5) - 0.5) * 300 - 10 * (1 - smooth(0, 0.025, cn)) + mt * mt * 2400 + (bfbm(P.x / 60, P.y / 60, P.z / 60, 2) - 0.5) * 4;
+}
+const bodyHeightP = (kind, P) => (kind === "moon" ? moonH(P) : kind === "mars" ? marsH(P) : iceH(P));
+function bodyColor(kind, h, ny, P, out) {
+  const n = bfbm(P.x / 420 + 1, P.y / 420, P.z / 420, 3), n2 = cloudNoise3(P.x / 37, P.y / 37, P.z / 37), sl = clamp((0.88 - ny) / 0.3, 0, 1);
+  let r, g, b;
+  if (kind === "moon") {
+    const v = (0.44 + 0.26 * n + 0.07 * (n2 - 0.5) + clamp(h / 600, -0.08, 0.1)) * (1 - 0.45 * sl);
+    r = v; g = v * 0.99; b = v * 1.02;
+  } else if (kind === "mars") {
+    r = lerp(0.5, 0.82, n); g = lerp(0.24, 0.48, n); b = lerp(0.13, 0.26, n);
+    const lowK = smooth(-60, -140, h), highK = smooth(110, 230, h);
+    r = lerp(lerp(r, 0.27, lowK), 0.84, highK * 0.5); g = lerp(lerp(g, 0.14, lowK), 0.62, highK * 0.5); b = lerp(lerp(b, 0.1, lowK), 0.45, highK * 0.5);
+    r = lerp(r, 0.34, sl); g = lerp(g, 0.19, sl); b = lerp(b, 0.14, sl);
+    const sp2 = 0.94 + 0.12 * (n2 - 0.5); r *= sp2; g *= sp2; b *= sp2;
+  } else {
+    r = lerp(0.76, 0.95, n); g = lerp(0.86, 0.98, n); b = lerp(0.95, 1, n);
+    const cre = smooth(-6, -12, h);
+    r = lerp(r, 0.32, cre); g = lerp(g, 0.52, cre); b = lerp(b, 0.8, cre);
+    r = lerp(r, 0.48, sl); g = lerp(g, 0.58, sl); b = lerp(b, 0.7, sl);
+  }
+  out[0] = r; out[1] = g; out[2] = b;
+}
+function bodyDir(x, z, out) { // the unit vector, in the world's own frame, at a point of the chart
+  return out.copy(bodyChart.p).multiplyScalar(curBody.R).addScaledVector(bodyChart.tx, x - BODY_OFFSET).addScaledVector(bodyChart.tz, z - BODY_OFFSET).normalize();
+}
+function bodyGroundY(x, z) { bodyDir(x, z, _bp).multiplyScalar(curBody.R); return bodyHeightP(curBody.kind, _bp); }
+
+// ----- the ground tiles -----
+const bodyGroup = new THREE.Group();
+bodyGroup.visible = false;
+scene.add(bodyGroup);
+const BT = (() => {
+  const N = 32, idx = new Uint16Array(N * N * 6);
+  { let k = 0; for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const a = j * (N + 1) + i, b = a + 1, c = a + N + 1, d = c + 1; idx[k++] = a; idx[k++] = c; idx[k++] = b; idx[k++] = b; idx[k++] = c; idx[k++] = d; } }
+  const levels = [256, 1024, 4096, 16384].map((size, li) => ({ size, tiles: new Map(), mat: new THREE.MeshLambertMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: li * 2, polygonOffsetUnits: li * 2 }) }));
+  const H = new Float32Array((N + 3) * (N + 3)), P = new THREE.Vector3(), cc = [0, 0, 0];
+  function build(L, ix, iz) {
+    const lv = levels[L], step = lv.size / N, kind = curBody.kind, R = curBody.R;
+    for (let j = -1; j <= N + 1; j++) for (let i = -1; i <= N + 1; i++) {
+      bodyDir(BODY_OFFSET + ix * lv.size + i * step, BODY_OFFSET + iz * lv.size + j * step, P).multiplyScalar(R);
+      H[(j + 1) * (N + 3) + i + 1] = bodyHeightP(kind, P);
+    }
+    const pos = new Float32Array((N + 1) * (N + 1) * 3), nor = new Float32Array((N + 1) * (N + 1) * 3), col = new Float32Array((N + 1) * (N + 1) * 3);
+    for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+      const hi = (j + 1) * (N + 3) + i + 1, h = H[hi];
+      const dx = (H[hi + 1] - H[hi - 1]) / (2 * step), dz = (H[hi + N + 3] - H[hi - N - 3]) / (2 * step), l = Math.hypot(dx, 1, dz);
+      const k = (j * (N + 1) + i) * 3;
+      pos[k] = i * step; pos[k + 1] = h; pos[k + 2] = j * step;
+      nor[k] = -dx / l; nor[k + 1] = 1 / l; nor[k + 2] = -dz / l;
+      bodyDir(BODY_OFFSET + ix * lv.size + i * step, BODY_OFFSET + iz * lv.size + j * step, P).multiplyScalar(R);
+      bodyColor(kind, h, nor[k + 1], P, cc);
+      col[k] = cc[0]; col[k + 1] = cc[1]; col[k + 2] = cc[2];
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+    g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    const m = new THREE.Mesh(g, lv.mat);
+    m.frustumCulled = false;
+    m.position.set(BODY_OFFSET + ix * lv.size, 0, BODY_OFFSET + iz * lv.size);
+    bodyGroup.add(m);
+    return m;
+  }
+  const drop = (m) => { bodyGroup.remove(m); m.geometry.dispose(); };
+  return {
+    update(maxBuilds) {
+      const cx = player.x - BODY_OFFSET, cz = player.z - BODY_OFFSET;
+      let builds = 0;
+      levels.forEach((lv, L) => {
+        const tx0 = Math.floor(cx / lv.size), tz0 = Math.floor(cz / lv.size), want = new Set();
+        for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) want.add(tx0 + dx + "," + (tz0 + dz));
+        for (const [k, m] of lv.tiles) if (!want.has(k)) (drop(m), lv.tiles.delete(k));
+        for (const k of want) if (!lv.tiles.has(k) && builds < maxBuilds) { const [a, b] = k.split(",").map(Number); lv.tiles.set(k, build(L, a, b)); builds++; }
+      });
+      return builds;
+    },
+    clear() { for (const lv of levels) { for (const m of lv.tiles.values()) drop(m); lv.tiles.clear(); } },
+  };
+})();
+
+// ----- flying in space -----
+function nearestWorld(pos) { // [height above the nearest surface, which world (null: home)]
+  let h = pos.length() - PLANET_R, nb = null;
+  for (const b of BODY_LIST) { const a = _bp.copy(pos).sub(b.pos).length() - b.R; if (a < h) (h = a), (nb = b); }
+  return [h, nb];
+}
+function updateSpacePlayer(dt) {
+  readControls(dt);
+  camera.getWorldDirection(camDir3);
+  const [h0, nb] = nearestWorld(sp.pos), h = Math.max(h0, 1);
+  const pre = SPACE_SPEEDS[opts.flightSpd], speed = Math.min(pre[1], 40 + pre[0] * h);
+  _want.set(0, 0, 0);
+  const fd = flightDirection();
+  if (fd) _want.copy(fd).multiplyScalar(speed);
+  const mag = Math.hypot(input.x, input.z);
+  if (mag > 0) {
+    camera.getWorldQuaternion(_qq);
+    _right.set(1, 0, 0).applyQuaternion(_qq);
+    _want.addScaledVector(_right, input.x * speed * 0.5).addScaledVector(camDir3, -input.z * speed * 0.5);
+  }
+  sp.vel.lerp(_want, 1 - Math.exp(-dt * (fd || mag > 0 ? 2.5 : 4)));
+  sp.pos.add(toInertial(_t1.copy(sp.vel).multiplyScalar(dt), _t2));
+  if (nb === BODIES.moon && h < nb.R * 6) sp.pos.add(_t2.copy(nb.pos).sub(nb.prev)); // (stay with the moon as it circles)
+  rig.position.set(BODY_OFFSET, 0, BODY_OFFSET);
+  rig.rotation.y = yaw;
+  if (!renderer.xr.isPresenting) camera.rotation.set(pitch, 0, 0, "YXZ");
+  vigWant = 0;
+}
+
+// ----- changing worlds -----
+// While you are away the home world's things (the island, dock, boat, fish, ships...) are switched off, so the other worlds can sit round the
+// origin of the coordinates, where the GPU's numbers are small and exact (the same idea as a "floating origin").
+let earthHidden = null;
+function setEarthHidden(on) {
+  if (on && !earthHidden) {
+    earthHidden = [];
+    for (const c of scene.children) {
+      if (c === bodyGroup || c === spaceGroup || c === sky || c === planet || c === atmosphere || c === rig || c.isLight || !(c.isMesh || c.isGroup || c.isPoints || c.isLine || c.isSprite)) continue;
+      if (c.visible) { c.visible = false; earthHidden.push(c); }
+    }
+  } else if (!on && earthHidden) {
+    for (const c of earthHidden) c.visible = true;
+    earthHidden = null;
+  }
+}
+function enterSpace() {
+  sp.ex.copy(SQ.ex); sp.ey.copy(SQ.ey); sp.ez.copy(SQ.ez);
+  sp.pos.copy(pIn);
+  sp.vel.copy(player.fv);
+  earthSave = { x: player.x, z: player.z, face: curFace };
+  sp.on = true;
+  setEarthHidden(true);
+  flashHint("Space. Hold the trigger (or Space) to fly where you look, and the stick (or WASD) to drift.");
+}
+function leaveSpaceToEarth() {
+  lookDirScene(_t1); toInertial(_t1, _fw); // where you look, in inertial space
+  toInertial(sp.vel, _t3); // and your velocity
+  spinVec(_t1.copy(sp.pos), -game.spin, _t2).normalize();
+  dirFace(_t2, _fo);
+  curFace = _fo.f;
+  player.x = FACE_C[curFace][0] + _fo.lx;
+  player.z = FACE_C[curFace][1] + _fo.lz;
+  player.y = Math.max(0, sp.pos.length() - PLANET_R);
+  player.vy = 0; player.grounded = false; player.swim = false; player.under = false;
+  faceFrame(curFace, _fo.lx, _fo.lz, PF.p, PF.tx, PF.tz);
+  spinVec(PF.tx, game.spin, SQ.ex); spinVec(PF.p, game.spin, SQ.ey); spinVec(PF.tz, game.spin, SQ.ez);
+  setLookFromScene(_t1.set(_fw.dot(SQ.ex), _fw.dot(SQ.ey), _fw.dot(SQ.ez)));
+  player.fv.set(_t3.dot(SQ.ex), _t3.dot(SQ.ey), _t3.dot(SQ.ez));
+  sp.on = false;
+  setEarthHidden(false);
+  screenFade = Math.max(screenFade, 0.5);
+}
+function landOn(b) {
+  lookDirScene(_t1); toInertial(_t1, _fw);
+  toInertial(sp.vel, _t3);
+  _t1.copy(sp.pos).sub(b.pos);
+  const alt = _t1.length() - b.R;
+  spinVec(_t1.normalize(), -game.spin, bodyChart.p);
+  bodyChart.tx.set(0, 1, 0).cross(bodyChart.p);
+  if (bodyChart.tx.lengthSq() < 1e-4) bodyChart.tx.set(1, 0, 0);
+  bodyChart.tx.normalize();
+  bodyChart.tz.crossVectors(bodyChart.tx, bodyChart.p);
+  curBody = b; sp.on = false; GRAV = b.g;
+  player.x = BODY_OFFSET; player.z = BODY_OFFSET;
+  player.y = alt; player.vy = 0; player.grounded = false; player.swim = false; player.under = false;
+  spinVec(bodyChart.tx, game.spin, SQ.ex); spinVec(bodyChart.p, game.spin, SQ.ey); spinVec(bodyChart.tz, game.spin, SQ.ez);
+  setLookFromScene(_t1.set(_fw.dot(SQ.ex), _fw.dot(SQ.ey), _fw.dot(SQ.ez)));
+  player.fv.set(_t3.dot(SQ.ex), _t3.dot(SQ.ey), _t3.dot(SQ.ez));
+  bodyGroup.visible = true;
+  setEarthHidden(true);
+  BT.clear();
+  BT.update(999);
+  screenFade = Math.max(screenFade, 0.7);
+  flashHint("Landing on " + b.name + (b.g < 3 ? " (low gravity: jump!)" : ""));
+}
+function takeOff() {
+  sp.ex.copy(SQ.ex); sp.ey.copy(SQ.ey); sp.ez.copy(SQ.ez);
+  sp.pos.copy(pIn);
+  sp.vel.copy(player.fv);
+  curBody = null; GRAV = 9.8; bodyGroup.visible = false; BT.clear();
+  if (earthSave) { player.x = earthSave.x; player.z = earthSave.z; curFace = earthSave.face; }
+  player.y = 0;
+  sp.on = true;
+  setEarthHidden(true);
+  flashHint("Space. Hold the trigger (or Space) to fly where you look.");
+}
+function exitToEarth() { // back to the home world's own coordinates (the caller then puts you somewhere)
+  if (curBody) { curBody = null; GRAV = 9.8; bodyGroup.visible = false; BT.clear(); }
+  sp.on = false;
+  setEarthHidden(false);
+  if (earthSave) { player.x = earthSave.x; player.z = earthSave.z; curFace = earthSave.face; }
+}
+function updateBodyChart() { // far from where the chart was laid, lay it down again here
+  const dx = player.x - BODY_OFFSET, dz = player.z - BODY_OFFSET, lim = curBody.R * 0.18;
+  if (Math.abs(dx) < lim && Math.abs(dz) < lim) return;
+  const hx = -Math.sin(yaw), hz = -Math.cos(yaw);
+  _t1.copy(bodyChart.p).multiplyScalar(curBody.R).addScaledVector(bodyChart.tx, dx).addScaledVector(bodyChart.tz, dz).normalize(); // the new "up"
+  _fw.copy(bodyChart.tx).multiplyScalar(hx).addScaledVector(bodyChart.tz, hz); // heading, in the world's frame
+  _t3.set(player.fv.x, 0, player.fv.z); _t2.copy(bodyChart.tx).multiplyScalar(_t3.x).addScaledVector(bodyChart.tz, _t3.z);
+  bodyChart.p.copy(_t1);
+  bodyChart.tx.addScaledVector(_t1, -bodyChart.tx.dot(_t1)).normalize();
+  bodyChart.tz.crossVectors(bodyChart.tx, bodyChart.p);
+  yaw = Math.atan2(-_fw.dot(bodyChart.tx), -_fw.dot(bodyChart.tz));
+  player.fv.x = _t2.dot(bodyChart.tx); player.fv.z = _t2.dot(bodyChart.tz);
+  player.x = BODY_OFFSET; player.z = BODY_OFFSET;
+  BT.clear();
+  BT.update(999);
+}
+function travelTransitions() {
+  if (!sp.on && !curBody) {
+    if (player.y > SPACE_ENTER && !player.grounded) enterSpace();
+    return;
+  }
+  if (sp.on) {
+    if (sp.pos.length() - PLANET_R < SPACE_EXIT) return leaveSpaceToEarth();
+    for (const b of BODY_LIST) {
+      _bp.copy(sp.pos).sub(b.pos);
+      const d = _bp.length();
+      if (!b.landable) {
+        if (d < b.R * 1.004) {
+          // no ground to land on: hold at the cloud tops
+          _bp.multiplyScalar(1 / d);
+          sp.pos.copy(b.pos).addScaledVector(_bp, b.R * 1.004);
+          toInertial(sp.vel, _t2);
+          _t2.addScaledVector(_bp, -Math.min(0, _t2.dot(_bp)));
+          sp.vel.set(_t2.dot(SQ.ex), _t2.dot(SQ.ey), _t2.dot(SQ.ez));
+          if (!travelTransitions.warned || performance.now() - travelTransitions.warned > 8000) { travelTransitions.warned = performance.now(); flashHint("The gas giant has no ground: only cloud, all the way down."); }
+        }
+        continue;
+      }
+      if (d - b.R < LAND_ALT) return landOn(b);
+    }
+    return;
+  }
+  if (curBody && player.y > BODY_EXIT) takeOff();
+}
+// a quick way to be somewhere: in space, 40 km from a world, looking at it
+function warpToBody(b) {
+  if (curBody) takeOff();
+  else if (!sp.on) { computeFrame(); enterSpace(); }
+  const away = b.pos.clone().negate().normalize().add(SUN_W).normalize(); // (the side the sun lights)
+  sp.pos.copy(b.pos).addScaledVector(away, b.R + (b.landable ? 40000 : 90000));
+  sp.vel.set(0, 0, 0);
+  _fw.copy(b.pos).sub(sp.pos).normalize();
+  setLookFromScene(_t1.set(_fw.dot(sp.ex), _fw.dot(sp.ey), _fw.dot(sp.ez)));
+  pitch = clamp(pitch, -1.4, 1.4);
+  screenFade = 1;
+  toggleMenu(false);
+}
+
 // ===== Frame loop: a full day and night in eight minutes =====
 const DAY_SECONDS = 480;
 const game = { hours: rand(0, 24), speed: 1, spin: 0, t: 0 }; // a random time of day each visit; spin = how far the planet has turned, t = hours played
@@ -9968,7 +10362,8 @@ function frame(now) {
     game.t += dh;
     game.spin += (dh / 24) * Math.PI * 2;
     updatePlayerFrame();
-    game.hours = hoursFromSpin(); // (the time where you are: it moves on as you travel east)
+    computeFrame();
+    if (!sp.on && !curBody) game.hours = hoursFromSpin(); // (the time where you are: it moves on as you travel east)
     const di = Math.floor(game.t / 24);
     if (di !== dayIdx) {
       dayIdx = di;
@@ -9985,8 +10380,12 @@ function frame(now) {
   checkBoatKey();
   updateBoatMoor(dt, t, env.lampsOn); // (before the player, so people aboard are carried with it)
   audio.engine(boatDrive.on ? clamp(Math.abs(moor.speed) / (BOAT_MAX0 * BOAT_SPEEDS[opts.boatSpd][1]) + 0.25 * Math.abs(boatDrive.throttle), 0, 1) : 0);
-  updatePlayer(dt);
-  updateFace();
+  if (sp.on) updateSpacePlayer(dt);
+  else {
+    updatePlayer(dt);
+    if (curBody) { updateBodyChart(); BT.update(2); } else updateFace();
+  }
+  travelTransitions();
   rig.updateMatrixWorld(true);
   camera.getWorldPosition(camPos);
   {
@@ -10054,6 +10453,7 @@ function frame(now) {
   screenFade = Math.max(0, screenFade - dt * 1.8);
   fadeQuad.material.opacity = screenFade;
   fadeQuad.visible = screenFade > 0.01;
+  curveCam.value.copy(camPos);
   renderer.render(scene, camera);
   drawPip();
 }
@@ -10099,7 +10499,7 @@ addEventListener("resize", () => {
 
 renderer.setAnimationLoop(frame);
 // handy for testing in a desktop browser
-window.__lt = { teleportTo, moonDir: () => shared.uMoonDir.value.toArray(), sunDirArr: () => shared.uSunDir.value.toArray(), setTime, faceInfo: () => ({ curFace, FACE_C, FACE_W, PLANET_R }), updateFace, nearestPOI, planetCells, cellsByDistance, setWeatherPreset, wx, mapBake, spaceState, planet, atmosphere, islandRoad, worldRoot, renderer, chunks, islandCell, nearestIsland, loadChunkNow, teleportToIsland, islandPOIs, poiSave, boatClearance, bedHeightJS, boatDrive, TELEPORTS, blocked, opts, applyOpts, rockSurfaces, rockSurfaceAt, surfaceAt, setImprintRes, camPos, perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
+window.__lt = { travel: { clearFade: () => { screenFade = 0; }, sunLight, hemiLight, scene, bodyGroup, sp, BODIES, warpToBody, landOn, takeOff, exitToEarth, bodyGroundY, BT, get curBody() { return curBody; }, get GRAV() { return GRAV; }, spaceState }, teleportTo, moonDir: () => shared.uMoonDir.value.toArray(), sunDirArr: () => shared.uSunDir.value.toArray(), setTime, faceInfo: () => ({ curFace, FACE_C, FACE_W, PLANET_R }), updateFace, nearestPOI, planetCells, cellsByDistance, setWeatherPreset, wx, mapBake, spaceState, planet, atmosphere, islandRoad, worldRoot, renderer, chunks, islandCell, nearestIsland, loadChunkNow, teleportToIsland, islandPOIs, poiSave, boatClearance, bedHeightJS, boatDrive, TELEPORTS, blocked, opts, applyOpts, rockSurfaces, rockSurfaceAt, surfaceAt, setImprintRes, camPos, perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
 })();
 </script>
 </body>

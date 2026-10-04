@@ -1,7 +1,18 @@
-Lantern Tide - version 7.0 (4 Oct 2026)
+Lantern Tide - version 7.1 (4 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 7.1: OTHER WORLDS
+- In space you now have a true position and fly MUCH faster: speed grows with your height above the nearest world (the flight-speed setting picks how
+  fast, up to 2,000 km/s on Warp), so crossing to another world takes seconds and arrival is gentle. Above 30 km you are in space; under 20 km of home you come back.
+- Four other worlds sit at true positions and sizes: the Moon (grey, craters of every size, low gravity), the red world (rust deserts, mesas, canyons,
+  mountains, a pink sky and thin air), the ice world (white-blue glaciers, crevasses, mountains) and a ringed gas giant with no ground (you can circle it, not land).
+  Come within 6 km of a landable world and you land, on terrain built round you in four tile sizes from a height function of the place, so the same spot is
+  always the same land. Leave above 25 km. Each has its own sky, light, fog and gravity; the home planet is a sphere in their sky.
+- "Fly to ..." entries in the teleport menu put you 40 km from each world; any home teleport brings you back.
+- Fixed: things drawn with plain or Lambert materials (the menu panel, new meshes) were curved round the wrong point far from the origin, and vanished.
+  The aurora now fades out as you climb. Other worlds are laid at the origin and the home world's things are switched off while you are away.
 
 New in 7.0: A REAL SPHERE
 - The world is now a cube-sphere: six faces of 32 x 32 cells wrapped around a planet about 26.5 km in radius (166 km round), with thousands of
