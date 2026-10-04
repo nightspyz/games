@@ -1,0 +1,188 @@
+Lantern Tide - version 7.0 (4 Oct 2026)
+
+Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
+Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 7.0: A REAL SPHERE
+- The world is now a cube-sphere: six faces of 32 x 32 cells wrapped around a planet about 26.5 km in radius (166 km round), with thousands of
+  islands, rigs, wind farms and ships spread over it. Walking, sailing or flying off the edge of a face carries you onto the next (heading,
+  speed and boat turned to match); every face is ringed by open sea. You can circle the planet. The curve is the sphere's own, the same at every
+  height, and the planet seen from above is drawn from a map baked from the same functions that stream the islands (all six faces, nearest first).
+- The sun stands still; the planet turns under it once a day and you ride on it, so your sunrise and sunset depend on where you are (fly east and it
+  gets later). The Time buttons set the time where you stand. The moon orbits every 8.5 days, lit by the sun, with real phases in the sky and from space.
+- Lakes on some bigger islands, with their own water. The detailed square of sea now melts smoothly into the planet's sea as you climb.
+- "Nearest: ..." teleports search the whole planet. Clouds on the planet are 3D noise on the globe (no seams, no poles).
+- Fog days really are rare now (the morning roll was still 30%).
+
+New in 6.2: A WORLD WITHOUT EDGES
+- The world now repeats every 24 x 24 cells (about 31 km): fly or sail in any direction and there are islands, rigs, wind farms and ships
+  all the way round, with no edge of the world. The planet seen from space shows the whole repeating world, and the minimap has no border.
+- Coming down from space no longer shows one square of water: the detailed sea fades into the planet's own sea as you climb.
+- Space is closer still: the sky is black by 1.6 km, stars from 600 m, the atmosphere glow from 500 m, and the sky clouds are gone once you are up there.
+- Flying into the sea no longer takes you to the seabed: you stop at the surface and swim, depth is capped at 5 m, and a jump at the surface springs you out
+  of the water so you can fly again. Flight speed near the sea is gentle.
+
+New in 6.1: fixes the white-out on NVIDIA cards (Direct3D 11): the 5.0 change that bent sprites with the planet's curve is gone.
+  Everything in 6.0 below is included; the debug log and toggles from the test builds are removed.
+
+New in 6.0: A REVIEW PASS - places worth finding
+- Sun brightness and Moon brightness sliders (0-200%) in the menu (World tab), saved between visits.
+- Fog days: 3 launches in 10 began on a "fog day" at 90% fog, which buries the whole world in grey-white. They
+  are now rare (1 in 20), start thin, and even at full strength you can see ~400 m. The Fog preset is softer too.
+- Space is closer: the sky is fully black by 3.5 km (was 10 km), stars/sun/planets appear from 1.5 km, and the atmosphere now reaches
+  above the clouds (1.3 km), so clouds are always inside it and never float above it.
+- Four new handcrafted places, placed deterministically: a LIGHTHOUSE on the rocky shore (rotating beam at night, keeper's log), a
+  SHIPWRECK half sunk on a beach, an OBSERVATORY on high ground (telescope and star chart), and HIDDEN RUINS (a ring of standing stones in
+  the woods around a rune stone that wakes when touched). All have teleport entries ("Nearest: ...") and minimap marks.
+- Discovery: walking up to a place for the first time shows "Discovered: ..." with a running count. Notes and logs tell a loose story.
+- Terrain: less repetitive land texture (macro variation), shallows tint and caustics, per-island grass palettes with wildflowers, new
+  broadleaf/cypress/snag tree shapes, better underwater visibility.
+- Minimap sits further in with margins that scale with the screen, a clearer player arrow, label pills.
+- Flying: speed scales with height above the ground (gentle near it), soft landings, a fade when teleporting, a light flight vignette.
+
+New in 5.1:
+- Fixed everything looking blown out white on some graphics cards: a sky shader line used smoothstep with its edges the wrong way round,
+  which is undefined in GLSL (fine on some GPUs, NaN on others, and NaN draws as white). Two such lines fixed.
+- The far sea (the planet's surface at sea level) now fades into exactly the same haze colour the old far ocean did.
+- The cabin's weathered wood is lighter. A new /about page (about/index.html) tells the story of the game, with screenshots.
+
+New in 5.0: THE WORLD IS A PLANET
+- The whole world now curves like a small planet: the sea, the land, trees, boats, everything drops away below the horizon (very gently at
+  sea level, so islands still rise over it as you approach). Climb, and the curvature grows until you can see the planet is round.
+- Fly up to space: the sky fades slowly from blue to black, the clouds lie low (you climb through them and they are beneath you), a thin
+  atmosphere hugs the ground, and above about 10 km it is black with stars only. From space you look down at your planet: islands with
+  their shallows, clouds with shadows, a day side and a dark side with a soft terminator, the sun's glint on the sea, city, airport and
+  lava lights on the night side, an atmosphere glowing blue at the limb and orange at sunset, the real sun and the moon (with phases)
+  and a few neighbouring planets. The planet turns beneath you as you travel.
+- Flight is much faster: Slow 25, Normal 90, Fast 350, Rocket 1800, Warp 7000 m/s (choose in the Travel tab). You can fly out over the
+  edge of the world, and the islands stop streaming while you are high up.
+- The islands are no longer evenly spaced: every row of the layout is shifted by its own amount, islands cluster into archipelagos with wide
+  empty seas between, small islets are more common, and the world is a little bigger (7 x 7 cells).
+
+New in 4.2:
+- Roads now rest on top of the landscape (Coastline's road settling): each point sits on the highest ground under the road's width,
+  smoothed so it bridges dips and rivers, with its sides dropping down to the ground, so it never disappears into hills.
+- Temple/shrine islands have no roads and no wind turbines (and neither does any island that holds a forest shrine).
+- The minimap sits further in toward the middle of your view.
+
+New in 4.1:
+- Buildings are solid and lit the right way round (the normals/winding were inverted); you cannot walk or fly into them (box
+  colliders, roof height respected). Window lights, street lights, runway lights, the oil rig's work lights and the volcano glow now show
+  from far away at night (Coastline's glowing points, unaffected by haze).
+- More of Coastline's sea and sky: ships (sailboat, tour boat, ferry, tanker, cruise liner, container ship, coast guard) cruising in
+  open water and round islands; an oil rig (with a flare, a helipad and a deck you can stand on); wind farms at sea and wind turbines
+  on high ground; a flock of gulls that circles the leaping fish and dives; a sightseeing plane circling the island you are at, and
+  airliners crossing high overhead. Teleport: nearest oil rig / wind farm. Cliffs and fields were already in 4.0.
+- Island shores: sandy beaches with boulders at the waterline, sea stacks, driftwood, shrubs, palms right down to the beach, kelp
+  forests, and (as at home) corals, reef rocks and fish schools wherever you swim; leaping fish follow you to any island.
+- The minimap now floats in your view, up in the left corner, instead of sitting on your hand.
+- Festival lanterns (sky lanterns, lotus on the sea, the beach garland) are now OFF by default; turn them on in the World tab.
+
+New in 4.0: THE WIDER WORLD
+- A world of about 6.5 km across, made of islands that stream in as you travel (nothing is loaded at start): tropical islands with
+  forests and rivers, volcanoes (smoking, with lava flows), temple islands, swamps with mangroves, cities with lit windows, an
+  airport island with planes landing and taking off, plus islets and big islands of every size. Many places are open sea only. The islands sit on a
+  staggered, jittered layout rather than a grid. Same seed, same world (add ?seed=anything to the address for a different one).
+- Islands rise out of the sea as you approach: the land bends away below the horizon, and distant islands are built in the haze.
+- Some islands have a coast road with power lines, guard rails where the ground falls away, bridges over rivers, and cars (with
+  headlights at night); some have farmland (Coastline's field patchwork, with a barn, silo and hay bales); some have sea cliffs.
+- Hand-made places of interest set into the land: a fishing cabin with a pier, dinghy and lantern; an abandoned campsite with a cold fire
+  and a diary; a forest shrine with a gate, stone lanterns and an offering. Their ground is levelled and blended, paths lead to them,
+  trees keep clear of them, and what you do there is remembered (even in later visits). See WORLD_DESIGN.md.
+- Minimap (M cycles its size; on your left controller in VR), the nearest island is named at its foot. Teleport tab: nearest of each
+  island type and place of interest. New Travel tab: flight on/off and speed, boat speed, and "Return the boat to the dock".
+
+New in 3.12:
+- Drive the boat (ported from Coastline's boat.js): press Y on the left controller (or the Y key) within a few metres of the
+  boat, or while swimming next to it, to take the helm; press Y again to step away, anywhere at sea. At the helm the left stick is
+  the throttle (forward / back) and the rudder (left / right); on a screen W S A D. It has acceleration and drag, pivots slowly when
+  stopped, rides the waves, slides along shallows, the pier and the breakwater rocks, and has an engine sound. If you leave
+  it, you are carried along the deck while it coasts. The Teleport tab has "Board the boat".
+- Reef rocks and corals no longer look see-through underwater.
+
+New in 3.11:
+- Flight, VRChat style (World tab, on by default): jump (A), then hold a trigger in the air and you fly the way that controller
+  points, up to about 7 m/s; use both hands and it blends them. Let go and you carry on a little, then fall. Falling into deep water
+  drops you straight into swimming. On a screen: jump, then hold Space in the air to fly where you look.
+
+New in 3.10:
+- A Teleport tab in the X menu: Beach (start), Campfire, Lighthouse, Rocks at sea (the breakwater boulders, which you can now stand
+  on), End of the dock, and the Island hilltop. The menu closes and you arrive facing the place.
+
+New in 3.9:
+- The VR menu now stays put relative to you: it is placed in front of you when you press X and then moves with you as you walk,
+  swim or turn, instead of staying behind at a spot in the world.
+
+New in 3.8:
+- More natural floating: treading water, your eyes sit a hand's breadth above the surface (set from your real height), you rise
+  and fall with each wave and bob gently; a big wave can wash over your head.
+
+New in 3.7:
+- Swim with your arms: in deep water hold a trigger and sweep that hand through the water (pull it back, down or sideways);
+  the water pushes you the opposite way. Use both hands for stronger strokes; you glide and slow between strokes, and your
+  controllers buzz with each pull. The stick still swims too.
+
+New in 3.6:
+- The X menu now has three tabs: Time & weather, World, Performance.
+- World tab: aurora on/off, star brightness (Dim to Brilliant), wave height (Calm to Huge), sand-mark detail (Low / Medium / High),
+  and a button to smooth the sand. Your choices are remembered.
+- Marks in the sand are now dug in (hollows with damp, packed sand at the bottom) rather than raised.
+- Better rocks: layered stone with cracks, mica flecks and real surface relief, flat fracture faces, on the beach, lighthouse
+  boulders, breakwater and fire ring.
+- You can jump onto rocks (A / Space): rocks are solid surfaces now, you step up about half a metre and jump for more.
+- Swimming: wade out past your chest and you swim, moving the way you look (look down to dive, up to rise, A kicks you up).
+  Underwater has its own look and sound: teal murk, a bright window to the sky above, muffled audio, a seabed all around the island.
+  You can swim out to the harbour and climb out onto the dock or boat.
+
+New in 3.5:
+- Calmer, more natural sunsets and sunrises: orange is now the dominant colour (gold to orange to a soft peach, fading to blue),
+  with the deep reds and purples toned right down, in the sky, the clouds and the sun.
+- Smoother clouds and god rays. They are no longer marched for every pixel with a random start (which left grain);
+  they are drawn into a small map of the whole sky, a quarter of it per frame, and read back with a soft blur.
+  The cost no longer depends on the screen, so the quality levels are cheap: defaults are now Medium clouds and
+  Medium god rays. Low / Medium / High set the sky map size (512 / 768 / 1024 wide) and the march steps.
+
+New in 3.4:
+- Performance settings in the X menu, for the two costliest parts of the picture: the raymarched clouds
+  (Off / Low / Medium / High: march steps, light samples, fine edge detail) and the god rays (Off / Low / Medium / High),
+  plus whether clouds shade the sea and sand. Lower defaults now: Low clouds, Low god rays, no cloud shadows.
+  Your choices are remembered in the browser.
+- A live frame-rate and frame-time reading in the menu (green 60+, amber 40+, red below).
+
+New in 3.3:
+- A menu on X (VR: X on the left controller, point and pull the trigger; screen: X) to set the time of day
+  (drag the bar, or Dawn / Noon / Dusk / Night), how fast time passes (pause / 1x / 4x / 16x) and the weather
+  (Clear / Cloudy / Rain / Storm / Fog / Mist, or Random to let the forecast take over again).
+- The drone controller's readout no longer lies over its screen: the picture and the text have their own areas.
+
+New in 3.2:
+- The drone controller takes the place of your hand when you hold it (bigger, so the screen is easy to read).
+- Real drone-remote controls: left stick forward / back = up / down, left / right = rotate;
+  right stick forward / back = fly forward / back, left / right = strafe.
+- Press A to jump.
+- The drone flies itself home if you leave it for 45 s; after 90 s it is put back on its pad,
+  fully charged, and the controller goes back on the table.
+
+New in 3.1:
+- Fireworks from Coastline: a crate of rockets on the beach. Pick one up, light it (trigger, or touch the fuse
+  to the campfire) and it shoots up. Set one down and it plants upright and flies straight up.
+- Drone from Coastline: a model on a landing pad and a hand controller with a live camera screen.
+  VR: sticks fly it, trigger takes off / lands. Screen: WASD, R / F, drag, Space.
+- One shared pick-up system for the stick, rockets and controller.
+- Click the left stick to toggle run mode.
+
+New in 3.0:
+- Coastline's reef (7 coral kinds), kelp forests, fish schools, leaping fish and cabin cruiser.
+- A small dock with the boat moored alongside, in a sheltered, dredged basin behind a breakwater.
+- Coastline's weather: forecast cycle plus fog days. Random weather and time of day on each visit.
+
+New in 2.1:
+- Random fog / rain / storm spells, new billowy clouds with cirrus, a smaller dimmer sun.
+
+New in 2.0 (the island rework):
+- Walk the island beach through a full day and night (8 minutes); no raft, menus or score.
+- Chinese festival lanterns (lotus lanterns on the water, rising sky lanterns, red lanterns on bamboo poles).
+- Procedural sand shader, footprints, a stick to draw in the sand, campfire, wind-driven palms and grass,
+  red / purple sunsets, god rays, a conical lighthouse beam, textured lighthouse, rocks and driftwood.
+
+1.0: the original raft game on the Coastline ocean.
