@@ -7,6 +7,8 @@ New in 7.5: ISLANDS THAT JOIN INTO LANDMASSES
 - An island is no longer limited to its own 1.2 km cell. The land is now the union of the islands round any point, softened with a smooth minimum, so islands that
   meet are bridged by one continuous landmass (the water shader does the same with the nine islands it is given). Island sizes now run up to 720 m in radius, so
   the biggest ones spill into the cells round them and fuse with their neighbours.
+- Where two islands' ground overlaps, each island now draws only the land it rules (a neighbour's land is skipped), and its copy sits 5 cm lower along the seam,
+  so the two never fight for the same pixels (the flickering you saw where landmasses merged).
 - The sea floor now drops away to full depth 350 m off any coast (it used to creep down for kilometres), so far-off islands never matter to the water.
 
 New in 7.4: NAVIGATION IN SPACE, ROLL, BIGGER LAND
