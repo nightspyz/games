@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v7.1 -->
+<!-- Lantern Tide v7.2 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -39,7 +39,7 @@ canvas{display:block;touch-action:none}
 <button id="vr">Enter VR</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// Lantern Tide v7.1: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v7.2: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 (() => {
@@ -3027,13 +3027,13 @@ const audio = (() => {
       lfo.connect(lfoGain).connect(seaGain.gain);
       lfo.start();
     },
-    update(w, rainAmt, ws, shoreD) {
+    update(w, rainAmt, ws, shoreD, air = 1, away = false) {
       if (!ctx) return;
       const t = ctx.currentTime;
       const surf = 1 - smooth(5, 220, shoreD); // the sea is loudest at the water's edge
-      windGain.gain.setTargetAtTime(0.02 + 0.22 * w, t, 0.3);
-      seaGain.gain.setTargetAtTime(0.05 + (0.1 + 0.1 * ws * 0.5) * surf * 2, t, 0.3);
-      rainGain.gain.setTargetAtTime(0.1 * rainAmt, t, 0.3);
+      windGain.gain.setTargetAtTime((0.02 + 0.22 * w) * air, t, 0.3);
+      seaGain.gain.setTargetAtTime(away ? 0 : (0.05 + (0.1 + 0.1 * ws * 0.5) * surf * 2) * air, t, 0.3);
+      rainGain.gain.setTargetAtTime(0.1 * rainAmt * air, t, 0.3);
     },
     fwLaunch() {
       if (!ctx) return;
@@ -4072,7 +4072,7 @@ function updateReefFish(dt, t) {
   const pdx = camPos.x - I.x, pdz = camPos.z - I.z;
   const pl = Math.hypot(pdx, pdz) || 1;
   const Rc = I.a ? isleCoastR(I.a, Math.atan2(pdz, pdx)) : I.r;
-  const nearShore = pl - Rc > -40 && pl - Rc < 170;
+  const nearShore = !sp.on && !curBody && pl - Rc > -40 && pl - Rc < 170; // (the reef is the home world's: never out in space)
   reefBodies.visible = reefTails.visible = nearShore;
   if (!nearShore) {
     for (const s of schools) s.placed = false;
@@ -10060,59 +10060,119 @@ const setLookFromScene = (v) => { yaw = Math.atan2(-v.x, -v.z); pitch = Math.asi
 
 // ----- the lands -----
 function bfbm(x, y, z, o) { let v = 0, a = 0.5; for (let i = 0; i < o; i++) { v += a * cloudNoise3(x, y, z); x = x * 2.02 + 17.1; y = y * 2.02 + 9.2; z = z * 2.02 + 4.7; a *= 0.5; } return v; }
-const CRATER_SIZES = [3200, 1100, 380, 130];
-function moonH(P) {
-  let h = Math.max(0, bfbm(P.x / 9000 + 13, P.y / 9000, P.z / 9000, 4) - 0.55) * 2 * Math.max(0, bfbm(P.x / 9000 + 13, P.y / 9000, P.z / 9000, 4) - 0.55) * 2600 + (bfbm(P.x / 7000 + 3.1, P.y / 7000, P.z / 7000, 5) - 0.5) * 260 + (bfbm(P.x / 900, P.y / 900 + 7, P.z / 900, 3) - 0.5) * 14;
-  for (let k = 0; k < 4; k++) {
+const _wp = new THREE.Vector3();
+function ridged(x, y, z, o) { // sharp-crested noise: mountain ranges
+  let v = 0, a = 0.5, w = 1;
+  for (let i = 0; i < o; i++) { let n = 1 - Math.abs(2 * cloudNoise3(x, y, z) - 1); n *= n * w; w = clamp(n * 2, 0, 1); v += n * a; x = x * 2.1 + 17.1; y = y * 2.1 + 9.2; z = z * 2.1 + 4.7; a *= 0.5; }
+  return v;
+}
+function warpP(P, f, amp) { // bend the place we look up, so features wander instead of lining up
+  return _wp.set(P.x + (bfbm(P.x * f + 5.2, P.y * f, P.z * f, 2) - 0.5) * amp, P.y + (bfbm(P.x * f, P.y * f + 1.3, P.z * f + 7.7, 2) - 0.5) * amp, P.z + (bfbm(P.x * f + 3.1, P.y * f + 8.8, P.z * f, 2) - 0.5) * amp);
+}
+// a crater of radius r, seen at q = distance / r: a bowl (or a flat floor with a central peak and terraced wall when large), a raised rim, a blanket of ejecta
+function craterH(q, r, depth) {
+  if (q > 1.7) return 0;
+  let h = 0;
+  if (q < 1) {
+    if (r > 450) { const wall = smooth(0.45, 1, q); h = -depth * r * (1 - wall) + 0.012 * r * Math.sin(q * 24) * wall * (1 - wall) * 4 + 0.09 * r * Math.exp(-(q * q) / 0.015); }
+    else h = -depth * r * (1 - q * q);
+  }
+  const rq = (q - 1) / 0.13;
+  h += 0.07 * r * Math.exp(-rq * rq);
+  if (q > 1) h += 0.035 * r / (q * q * q) * (1 - smooth(1.3, 1.7, q));
+  return h;
+}
+function craterField(P, sizes, probs, depth, K) {
+  let h = 0;
+  for (let k = 0; k < sizes.length; k++) {
     // one possible crater in each cube of the lattice, lying wholly inside it
-    const S = CRATER_SIZES[k], ci = Math.floor(P.x / S), cj = Math.floor(P.y / S), ck = Math.floor(P.z / S), sd = ck + k * 977;
-    if (hash3(ci, cj, sd) > 0.6) continue;
-    const r = S * (0.14 + 0.2 * hash3(ci, cj, sd + 1)), f = r / S;
+    const S = sizes[k], ci = Math.floor(P.x / S), cj = Math.floor(P.y / S), ck = Math.floor(P.z / S), sd = ck + k * 977;
+    if (hash3(ci, cj, sd) > probs[k] * K) continue;
+    const f = 0.1 + 0.2 * hash3(ci, cj, sd + 1), r = S * f;
     const cx = (ci + f + (1 - 2 * f) * hash3(ci, cj, sd + 2)) * S, cy = (cj + f + (1 - 2 * f) * hash3(ci, cj, sd + 3)) * S, cz = (ck + f + (1 - 2 * f) * hash3(ci, cj, sd + 4)) * S;
-    const dx = P.x - cx, dy = P.y - cy, dz = P.z - cz, q = Math.sqrt(dx * dx + dy * dy + dz * dz) / r;
-    if (q < 1.5) {
-      if (q < 1) h -= r * 0.3 * (1 - q * q);
-      const rq = (q - 1) / 0.2;
-      h += r * 0.07 * Math.exp(-rq * rq);
-    }
+    const dx = P.x - cx, dy = P.y - cy, dz = P.z - cz;
+    h += craterH(Math.sqrt(dx * dx + dy * dy + dz * dz) / r, r, depth * (0.75 + 0.5 * hash3(ci, cj, sd + 5)));
   }
   return h;
 }
+const MOON_CR = [6400, 3000, 1400, 650, 300, 140, 64], MOON_P = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8];
+const MARS_CR = [14000, 5000, 1800, 700, 260], MARS_P = [0.3, 0.35, 0.45, 0.5, 0.55];
+function moonH(P) {
+  const cont = bfbm(P.x / 22000 + 3, P.y / 22000, P.z / 22000, 3);
+  const mare = smooth(0.46, 0.53, cont); // dark, smooth plains between the cratered highlands
+  const range = smooth(0.3, 0.6, bfbm(P.x / 16000 + 9, P.y / 16000, P.z / 16000, 3));
+  let h = -mare * 240 + (1 - mare) * (ridged(P.x / 6000 + 2, P.y / 6000, P.z / 6000, 4) * 1100 * range) + (bfbm(P.x / 3000 + 3.1, P.y / 3000, P.z / 3000, 5) - 0.5) * 220 * (1 - 0.6 * mare);
+  h += (bfbm(P.x / 300, P.y / 300 + 7, P.z / 300, 3) - 0.5) * 18 * (1 - 0.5 * mare) + (bfbm(P.x / 38, P.y / 38, P.z / 38, 2) - 0.5) * 3.2;
+  return h + craterField(P, MOON_CR, MOON_P, 0.22, 1.25 - 0.55 * mare);
+}
 function marsH(P) {
-  const hills = (bfbm(P.x / 9000 + 11, P.y / 9000, P.z / 9000, 5) - 0.5) * 420;
-  const m = bfbm(P.x / 5200 + 5, P.y / 5200 + 2, P.z / 5200, 3);
-  const mesa = 70 * smooth(0.45, 0.52, m) + 60 * smooth(0.6, 0.67, m); // flat-topped mesas rising in steps
-  const cn = Math.abs(bfbm(P.x / 3800 + 9, P.y / 3800, P.z / 3800 + 1, 3) - 0.5);
-  const canyon = -150 * (1 - smooth(0, 0.035, cn)); // winding canyons
-  const dune = 6 * (1 - Math.abs(2 * cloudNoise3(P.x / 80, P.y / 80, P.z / 80) - 1));
-  const mt = Math.max(0, bfbm(P.x / 15000 + 31, P.y / 15000, P.z / 15000, 4) - 0.52) * 2; // ranges of mountains
-  return hills + mesa + canyon + dune + mt * mt * 3200 + (bfbm(P.x / 30, P.y / 30, P.z / 30, 2) - 0.5) * 3;
+  const Q = warpP(P, 1 / 12000, 2600), qx = Q.x, qy = Q.y, qz = Q.z;
+  const lowland = 1 - smooth(0.42, 0.56, bfbm(qx / 26000 + 4, qy / 26000, qz / 26000, 3)); // a northern basin and southern highlands
+  let h = (bfbm(qx / 26000 + 4, qy / 26000, qz / 26000, 3) - 0.5) * 1500 + (bfbm(qx / 7000, qy / 7000 + 2, qz / 7000, 5) - 0.5) * 320;
+  const m = bfbm(qx / 5200 + 5, qy / 5200 + 2, qz / 5200, 3);
+  h += 80 * smooth(0.45, 0.52, m) + 70 * smooth(0.6, 0.67, m) - 60 * lowland; // mesas rising in steps
+  h += ridged(qx / 9000 + 31, qy / 9000, qz / 9000, 4) * 1500 * smooth(0.45, 0.7, bfbm(qx / 20000 + 1, qy / 20000, qz / 20000, 3)); // mountain ranges
+  const band = Math.abs(bfbm(qx / 9000 + 9, qy / 9000, qz / 9000 + 1, 3) - 0.5);
+  h -= 520 * (1 - smooth(0, 0.03, band)) * smooth(0.4, 0.55, bfbm(qx / 30000 + 8, qy / 30000, qz / 30000, 2)); // canyon systems, with steep walls
+  // a great volcano in some of the big lattice cells
+  { const S = 52000, ci = Math.floor(P.x / S), cj = Math.floor(P.y / S), ck = Math.floor(P.z / S);
+    if (hash3(ci, cj, ck + 4001) < 0.28) {
+      const Rv = 9000 + 5000 * hash3(ci, cj, ck + 4002);
+      const cx = (ci + 0.3 + 0.4 * hash3(ci, cj, ck + 4003)) * S, cy = (cj + 0.3 + 0.4 * hash3(ci, cj, ck + 4004)) * S, cz = (ck + 0.3 + 0.4 * hash3(ci, cj, ck + 4005)) * S;
+      const d = Math.sqrt((P.x - cx) ** 2 + (P.y - cy) ** 2 + (P.z - cz) ** 2) / Rv;
+      if (d < 1) h += 3300 * Math.pow(1 - d, 1.1) * (1 - 0.1 * ridged(P.x / 400, P.y / 400, P.z / 400, 2)) - 340 * Math.exp(-(d * d) / 0.006);
+    } }
+  // sand: ripples and dunes laid down by the wind, thickest in the lowlands
+  const t = (P.x * 0.8 + P.z * 0.6) / 95 + 4 * bfbm(P.x / 260, P.y / 260, P.z / 260, 2);
+  const dune = Math.pow(0.5 + 0.5 * Math.sin(t * 6.2832), 2) * 9 * (0.25 + 0.75 * lowland) * smooth(0.35, 0.6, bfbm(P.x / 1800 + 6, P.y / 1800, P.z / 1800, 2));
+  h += dune + craterField(P, MARS_CR, MARS_P, 0.14, 1) + (bfbm(P.x / 30, P.y / 30, P.z / 30, 2) - 0.5) * 3.5;
+  return h;
 }
 function iceH(P) {
-  const cn = Math.abs(cloudNoise3(P.x / 300 + 4, P.y / 300, P.z / 300) - 0.5);
-  const mt = Math.max(0, bfbm(P.x / 12000 + 7, P.y / 12000, P.z / 12000, 4) - 0.5) * 2;
-  return (bfbm(P.x / 6500 + 21, P.y / 6500, P.z / 6500, 5) - 0.5) * 300 - 10 * (1 - smooth(0, 0.025, cn)) + mt * mt * 2400 + (bfbm(P.x / 60, P.y / 60, P.z / 60, 2) - 0.5) * 4;
+  const Q = warpP(P, 1 / 9000, 1800), qx = Q.x, qy = Q.y, qz = Q.z;
+  let h = (bfbm(qx / 9000 + 21, qy / 9000, qz / 9000, 5) - 0.5) * 300;
+  h += ridged(qx / 8000 + 7, qy / 8000, qz / 8000, 5) * 1900 * smooth(0.4, 0.65, bfbm(qx / 20000 + 2, qy / 20000, qz / 20000, 3)); // ice-clad ranges
+  const flow = smooth(0.3, 0.6, bfbm(qx / 5000 + 5, qy / 5000, qz / 5000, 3));
+  const c1 = Math.abs(bfbm(qx / 420 + 4, qy / 420, qz / 420, 2) - 0.5), c2 = Math.abs(bfbm(qx / 190 + 8, qy / 190, qz / 190 + 3, 2) - 0.5);
+  h -= (14 * (1 - smooth(0, 0.022, c1)) + 7 * (1 - smooth(0, 0.03, c2))) * flow; // crevasse fields in the moving ice
+  h += ridged(P.x / 140, P.y / 140, P.z / 140, 2) * 7 * flow; // pressure ridges
+  const lake = smooth(0.68, 0.72, bfbm(P.x / 3500 + 12, P.y / 3500, P.z / 3500, 3));
+  h = h * (1 - 0.92 * lake) - 22 * lake; // frozen lakes: dead flat
+  const wind = (P.x * 0.6 + P.z * 0.8) / 38 + 3 * bfbm(P.x / 150, P.y / 150, P.z / 150, 2);
+  return h + (1 - lake) * (Math.pow(0.5 + 0.5 * Math.sin(wind * 6.2832), 2) * 2.2) + (bfbm(P.x / 55, P.y / 55, P.z / 55, 2) - 0.5) * 4.5; // sastrugi: ridges carved by the wind
 }
 const bodyHeightP = (kind, P) => (kind === "moon" ? moonH(P) : kind === "mars" ? marsH(P) : iceH(P));
-function bodyColor(kind, h, ny, P, out) {
-  const n = bfbm(P.x / 420 + 1, P.y / 420, P.z / 420, 3), n2 = cloudNoise3(P.x / 37, P.y / 37, P.z / 37), sl = clamp((0.88 - ny) / 0.3, 0, 1);
+function bodyColor(kind, h, ny, P, conc, out) {
+  const n = bfbm(P.x / 520 + 1, P.y / 520, P.z / 520, 4), n2 = cloudNoise3(P.x / 29, P.y / 29, P.z / 29), n3 = cloudNoise3(P.x / 6, P.y / 6, P.z / 6), sl = clamp((0.9 - ny) / 0.32, 0, 1);
+  const ao = 1 - clamp(conc * 0.9, 0, 0.45);
   let r, g, b;
   if (kind === "moon") {
-    const v = (0.44 + 0.26 * n + 0.07 * (n2 - 0.5) + clamp(h / 600, -0.08, 0.1)) * (1 - 0.45 * sl);
-    r = v; g = v * 0.99; b = v * 1.02;
+    const mare = smooth(0.46, 0.53, bfbm(P.x / 22000 + 3, P.y / 22000, P.z / 22000, 3));
+    let v = lerp(0.46, 0.3, mare) + 0.2 * (n - 0.5) + 0.07 * (n2 - 0.5) + 0.04 * (n3 - 0.5) + clamp(h / 1800, -0.05, 0.12);
+    v *= 1 - 0.4 * sl;
+    r = v * 1.0; g = v * 0.985; b = v * 0.96 + 0.01 * mare;
   } else if (kind === "mars") {
-    r = lerp(0.5, 0.82, n); g = lerp(0.24, 0.48, n); b = lerp(0.13, 0.26, n);
-    const lowK = smooth(-60, -140, h), highK = smooth(110, 230, h);
-    r = lerp(lerp(r, 0.27, lowK), 0.84, highK * 0.5); g = lerp(lerp(g, 0.14, lowK), 0.62, highK * 0.5); b = lerp(lerp(b, 0.1, lowK), 0.45, highK * 0.5);
-    r = lerp(r, 0.34, sl); g = lerp(g, 0.19, sl); b = lerp(b, 0.14, sl);
-    const sp2 = 0.94 + 0.12 * (n2 - 0.5); r *= sp2; g *= sp2; b *= sp2;
+    const lowland = 1 - smooth(0.42, 0.56, bfbm(P.x / 26000 + 4, P.y / 26000, P.z / 26000, 3));
+    const dust = smooth(0.35, 0.65, n);
+    r = lerp(0.4, 0.68, dust); g = lerp(0.23, 0.43, dust); b = lerp(0.16, 0.3, dust);
+    const dark = lowland * smooth(0.45, 0.7, 1 - n2) * 0.7; // dark basalt sand in the basin
+    r = lerp(r, 0.2, dark); g = lerp(g, 0.14, dark); b = lerp(b, 0.12, dark);
+    const strata = 0.5 + 0.5 * Math.sin(h * 0.16 + 2 * n); // layered cliffs: bands of red and tan
+    r = lerp(r, lerp(0.5, 0.72, strata), sl); g = lerp(g, lerp(0.3, 0.48, strata), sl); b = lerp(b, lerp(0.2, 0.34, strata), sl);
+    const hi = smooth(1500, 3200, h); // pale frosted summits
+    r = lerp(r, 0.88, hi * 0.5); g = lerp(g, 0.76, hi * 0.5); b = lerp(b, 0.66, hi * 0.5);
+    const sp2 = 0.92 + 0.16 * (n2 - 0.5) + 0.06 * (n3 - 0.5); r *= sp2; g *= sp2; b *= sp2;
   } else {
-    r = lerp(0.76, 0.95, n); g = lerp(0.86, 0.98, n); b = lerp(0.95, 1, n);
-    const cre = smooth(-6, -12, h);
-    r = lerp(r, 0.32, cre); g = lerp(g, 0.52, cre); b = lerp(b, 0.8, cre);
-    r = lerp(r, 0.48, sl); g = lerp(g, 0.58, sl); b = lerp(b, 0.7, sl);
+    const snow = smooth(120, 600, h);
+    const blue = smooth(0.35, 0.7, 1 - n2);
+    r = lerp(lerp(0.74, 0.96, n), 0.6, blue * 0.5); g = lerp(lerp(0.85, 0.98, n), 0.76, blue * 0.5); b = lerp(lerp(0.95, 1.0, n), 0.95, blue * 0.5);
+    const cre = smooth(-6, -16, h); r = lerp(r, 0.3, cre); g = lerp(g, 0.5, cre); b = lerp(b, 0.78, cre);
+    const lake = smooth(-18, -22, h); r = lerp(r, 0.22, lake); g = lerp(g, 0.34, lake); b = lerp(b, 0.5, lake);
+    r = lerp(r, 0.97, snow * (1 - sl)); g = lerp(g, 0.98, snow * (1 - sl)); b = lerp(b, 1, snow * (1 - sl));
+    r = lerp(r, 0.42, sl * 0.9); g = lerp(g, 0.48, sl * 0.9); b = lerp(b, 0.56, sl * 0.9); // dark rock showing through the steep faces
+    const sp2 = 0.95 + 0.1 * (n2 - 0.5); r *= sp2; g *= sp2; b *= sp2;
   }
-  out[0] = r; out[1] = g; out[2] = b;
+  out[0] = r * ao; out[1] = g * ao; out[2] = b * ao;
 }
 function bodyDir(x, z, out) { // the unit vector, in the world's own frame, at a point of the chart
   return out.copy(bodyChart.p).multiplyScalar(curBody.R).addScaledVector(bodyChart.tx, x - BODY_OFFSET).addScaledVector(bodyChart.tz, z - BODY_OFFSET).normalize();
@@ -10126,7 +10186,7 @@ scene.add(bodyGroup);
 const BT = (() => {
   const N = 32, idx = new Uint16Array(N * N * 6);
   { let k = 0; for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const a = j * (N + 1) + i, b = a + 1, c = a + N + 1, d = c + 1; idx[k++] = a; idx[k++] = c; idx[k++] = b; idx[k++] = b; idx[k++] = c; idx[k++] = d; } }
-  const levels = [256, 1024, 4096, 16384].map((size, li) => ({ size, tiles: new Map(), mat: new THREE.MeshLambertMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: li * 2, polygonOffsetUnits: li * 2 }) }));
+  const levels = [128, 512, 2048, 8192, 32768].map((size, li) => ({ size, tiles: new Map(), mat: new THREE.MeshLambertMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: li * 2, polygonOffsetUnits: li * 2 }) }));
   const H = new Float32Array((N + 3) * (N + 3)), P = new THREE.Vector3(), cc = [0, 0, 0];
   function build(L, ix, iz) {
     const lv = levels[L], step = lv.size / N, kind = curBody.kind, R = curBody.R;
@@ -10139,10 +10199,11 @@ const BT = (() => {
       const hi = (j + 1) * (N + 3) + i + 1, h = H[hi];
       const dx = (H[hi + 1] - H[hi - 1]) / (2 * step), dz = (H[hi + N + 3] - H[hi - N - 3]) / (2 * step), l = Math.hypot(dx, 1, dz);
       const k = (j * (N + 1) + i) * 3;
-      pos[k] = i * step; pos[k + 1] = h; pos[k + 2] = j * step;
+      pos[k] = i * step; pos[k + 1] = h - (L > 0 ? step * 0.06 + L : 0); pos[k + 2] = j * step; // (coarser tiles sit a little lower, so the finer ones always show over them)
       nor[k] = -dx / l; nor[k + 1] = 1 / l; nor[k + 2] = -dz / l;
       bodyDir(BODY_OFFSET + ix * lv.size + i * step, BODY_OFFSET + iz * lv.size + j * step, P).multiplyScalar(R);
-      bodyColor(kind, h, nor[k + 1], P, cc);
+      const conc = ((H[hi - 1] + H[hi + 1] + H[hi - N - 3] + H[hi + N + 3]) * 0.25 - h) / step; // pits and hollows are darker
+      bodyColor(kind, h, nor[k + 1], P, conc * 2.2, cc);
       col[k] = cc[0]; col[k + 1] = cc[1]; col[k + 2] = cc[2];
     }
     const g = new THREE.BufferGeometry();
@@ -10173,6 +10234,50 @@ const BT = (() => {
   };
 })();
 
+// ----- boulders: scattered stones give the ground its scale -----
+const ROCKS = (() => {
+  const N = 1100, CELLR = 7, RAD = 180;
+  const geo = new THREE.IcosahedronGeometry(1, 1);
+  { const pa = geo.attributes.position; for (let i = 0; i < pa.count; i++) { const x = pa.getX(i), y = pa.getY(i), z = pa.getZ(i), n = 0.74 + 0.5 * cloudNoise3(x * 1.7 + 3, y * 1.7, z * 1.7); pa.setXYZ(i, x * n, Math.max(y * n, -0.25 * n), z * n); } geo.computeVertexNormals(); }
+  const mesh = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial(), N);
+  mesh.frustumCulled = false;
+  mesh.count = 0;
+  mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(N * 3), 3);
+  bodyGroup.add(mesh);
+  const dummy = new THREE.Object3D(), col = new THREE.Color();
+  let cx = 1e9, cz = 1e9;
+  return {
+    refresh(force) {
+      if (!curBody || (!force && Math.hypot(player.x - cx, player.z - cz) < 35)) return;
+      cx = player.x; cz = player.z;
+      const kind = curBody.kind, dens = kind === "moon" ? 0.08 : kind === "mars" ? 0.1 : 0.022;
+      const i0 = Math.floor((cx - RAD) / CELLR), i1 = Math.floor((cx + RAD) / CELLR), j0 = Math.floor((cz - RAD) / CELLR), j1 = Math.floor((cz + RAD) / CELLR);
+      let n = 0;
+      for (let j = j0; j <= j1 && n < N; j++) for (let i = i0; i <= i1 && n < N; i++) {
+        if (hash3(i, j, 5151) > dens) continue;
+        const k = hash3(i, j, 5152), sz = 0.22 + k * k * k * 2.8;
+        const x = (i + hash3(i, j, 5153)) * CELLR, z = (j + hash3(i, j, 5154)) * CELLR;
+        if (Math.hypot(x - cx, z - cz) > RAD) continue;
+        const y = bodyGroundY(x, z);
+        dummy.position.set(x, y + sz * 0.15, z);
+        dummy.rotation.set(0.3 * (hash3(i, j, 5155) - 0.5), hash3(i, j, 5156) * 6.2832, 0.3 * (hash3(i, j, 5157) - 0.5));
+        dummy.scale.set(sz * (0.8 + 0.5 * hash3(i, j, 5158)), sz * (0.5 + 0.4 * hash3(i, j, 5159)), sz * (0.8 + 0.5 * hash3(i, j, 5160)));
+        dummy.updateMatrix();
+        mesh.setMatrixAt(n, dummy.matrix);
+        const v = 0.7 + 0.5 * hash3(i, j, 5161);
+        if (kind === "moon") col.setRGB(0.36 * v, 0.355 * v, 0.35 * v);
+        else if (kind === "mars") col.setRGB(0.36 * v, 0.2 * v, 0.14 * v);
+        else col.setRGB(0.62 * v, 0.7 * v, 0.78 * v);
+        mesh.setColorAt(n, col);
+        n++;
+      }
+      mesh.count = n;
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.instanceColor.needsUpdate = true;
+    },
+  };
+})();
+
 // ----- flying in space -----
 function nearestWorld(pos) { // [height above the nearest surface, which world (null: home)]
   let h = pos.length() - PLANET_R, nb = null;
@@ -10183,7 +10288,8 @@ function updateSpacePlayer(dt) {
   readControls(dt);
   camera.getWorldDirection(camDir3);
   const [h0, nb] = nearestWorld(sp.pos), h = Math.max(h0, 1);
-  const pre = SPACE_SPEEDS[opts.flightSpd], speed = Math.min(pre[1], 40 + pre[0] * h);
+  // slow near a world, fast in the empty between: the closer you are, the less of your height counts
+  const pre = SPACE_SPEEDS[opts.flightSpd], speed = Math.min(pre[1], 30 + pre[0] * h * (0.06 + 0.94 * smooth(8000, 500000, h)));
   _want.set(0, 0, 0);
   const fd = flightDirection();
   if (fd) _want.copy(fd).multiplyScalar(speed);
@@ -10206,13 +10312,11 @@ function updateSpacePlayer(dt) {
 // While you are away the home world's things (the island, dock, boat, fish, ships...) are switched off, so the other worlds can sit round the
 // origin of the coordinates, where the GPU's numbers are small and exact (the same idea as a "floating origin").
 let earthHidden = null;
+const isAwayThing = (c) => !(c === bodyGroup || c === spaceGroup || c === sky || c === planet || c === atmosphere || c === rig || c.isLight || !(c.isMesh || c.isGroup || c.isPoints || c.isLine || c.isSprite));
 function setEarthHidden(on) {
   if (on && !earthHidden) {
     earthHidden = [];
-    for (const c of scene.children) {
-      if (c === bodyGroup || c === spaceGroup || c === sky || c === planet || c === atmosphere || c === rig || c.isLight || !(c.isMesh || c.isGroup || c.isPoints || c.isLine || c.isSprite)) continue;
-      if (c.visible) { c.visible = false; earthHidden.push(c); }
-    }
+    for (const c of scene.children) if (isAwayThing(c) && c.visible) { c.visible = false; earthHidden.push(c); }
   } else if (!on && earthHidden) {
     for (const c of earthHidden) c.visible = true;
     earthHidden = null;
@@ -10261,10 +10365,12 @@ function landOn(b) {
   spinVec(bodyChart.tx, game.spin, SQ.ex); spinVec(bodyChart.p, game.spin, SQ.ey); spinVec(bodyChart.tz, game.spin, SQ.ez);
   setLookFromScene(_t1.set(_fw.dot(SQ.ex), _fw.dot(SQ.ey), _fw.dot(SQ.ez)));
   player.fv.set(_t3.dot(SQ.ex), _t3.dot(SQ.ey), _t3.dot(SQ.ez));
+  { const cap = 22 + 1.4 * Math.max(0, alt); if (player.fv.length() > cap) player.fv.setLength(cap); } // (arrive at a walking-pace-for-the-height, not at your space speed)
   bodyGroup.visible = true;
   setEarthHidden(true);
   BT.clear();
   BT.update(999);
+  ROCKS.refresh(true);
   screenFade = Math.max(screenFade, 0.7);
   flashHint("Landing on " + b.name + (b.g < 3 ? " (low gravity: jump!)" : ""));
 }
@@ -10300,6 +10406,7 @@ function updateBodyChart() { // far from where the chart was laid, lay it down a
   player.x = BODY_OFFSET; player.z = BODY_OFFSET;
   BT.clear();
   BT.update(999);
+  ROCKS.refresh(true);
 }
 function travelTransitions() {
   if (!sp.on && !curBody) {
@@ -10383,15 +10490,16 @@ function frame(now) {
   if (sp.on) updateSpacePlayer(dt);
   else {
     updatePlayer(dt);
-    if (curBody) { updateBodyChart(); BT.update(2); } else updateFace();
+    if (curBody) { updateBodyChart(); BT.update(1); ROCKS.refresh(); } else updateFace();
   }
   travelTransitions();
+  computeFrame(); // (again, now you have moved: the worlds in the sky are placed from where you are, not where you were a moment ago)
   rig.updateMatrixWorld(true);
   camera.getWorldPosition(camPos);
   {
     // under the water? (a little hysteresis so the surface doesn't flicker)
     const sh = waveHeight(camPos.x, camPos.z, t);
-    const u = camPos.y < sh + (player.under ? 0.03 : -0.03) && player.waterSm - groundY(player.x, player.z) > 0.4;
+    const u = !sp.on && !curBody && camPos.y < sh + (player.under ? 0.03 : -0.03) && player.waterSm - groundY(player.x, player.z) > 0.4; // (only ever on the home world)
     if (u !== player.under) {
       player.under = u;
       audio.underwater(u);
@@ -10439,7 +10547,7 @@ function frame(now) {
   updateLighthouse(dt, env.lampsOn);
   updateRain(dt, env.lightLevel);
   if (player.under) rain.visible = false;
-  audio.update(weather.value, wx.rain, waveScale, Math.abs(shoreDistAll(player.x, player.z)));
+  audio.update(weather.value, wx.rain, waveScale, curBody || sp.on ? 1e4 : Math.abs(shoreDistAll(player.x, player.z)), sp.on ? 0 : curBody ? (curBody.kind === "mars" ? 0.25 : curBody.kind === "ice" ? 0.15 : 0) : 1 - smooth(1500, 12000, spaceState.alt), !!(sp.on || curBody));
 
   // Everything big follows the camera, so the sea, sky and horizon are always centred on you
   water.position.set(Math.round(camPos.x / WATER_STEP) * WATER_STEP, 0, Math.round(camPos.z / WATER_STEP) * WATER_STEP);
@@ -10453,6 +10561,7 @@ function frame(now) {
   screenFade = Math.max(0, screenFade - dt * 1.8);
   fadeQuad.material.opacity = screenFade;
   fadeQuad.visible = screenFade > 0.01;
+  if (earthHidden) for (const c of scene.children) if (c.visible && isAwayThing(c) && c !== planet) { c.visible = false; earthHidden.push(c); } // (whatever the home world's code switched back on)
   curveCam.value.copy(camPos);
   renderer.render(scene, camera);
   drawPip();

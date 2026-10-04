@@ -1,7 +1,16 @@
-Lantern Tide - version 7.1 (4 Oct 2026)
+Lantern Tide - version 7.2 (4 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 7.2: A NEW TERRAIN GENERATOR, AND QUIET SPACE
+- The other worlds' ground is rebuilt: domain-warped continents and basins, ridged mountain ranges, dune fields, canyon systems with steep layered walls and a great
+  shield volcano on the red world; on the Moon dark smooth maria between cratered highlands, craters in seven sizes (bowls, flat-floored with a central peak, rims and
+  ejecta); on the ice world ice-clad ranges, crevasse fields, pressure ridges, wind-carved ridges and frozen lakes. Finer ground near you (4 m), five tile sizes out
+  to 100 km, darker hollows, colour that follows height, slope and layers, and scattered boulders that give the ground its scale.
+- Space speed now depends on how near you are to a world: gentle close in (hundreds of m/s a few km up), fast only in the empty between. The worlds in the sky are
+  placed from where you are after each move (they used to lag a frame behind, which made them swim at speed), and landing drops you to a surface-flight speed.
+- Fixed: the home world's fish, birds and reef (and its underwater look and sound) could appear in space; the sea, wind and rain sounds now fade with the air (silence on the Moon).
 
 New in 7.1: OTHER WORLDS
 - In space you now have a true position and fly MUCH faster: speed grows with your height above the nearest world (the flight-speed setting picks how
