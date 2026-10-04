@@ -1,7 +1,16 @@
-Lantern Tide - version 7.2 (4 Oct 2026)
+Lantern Tide - version 7.3 (4 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 7.3: A REAL SOLAR SYSTEM, STARS, AND A GENTLE ARRIVAL
+- The four planets (home, red, ice, gas giant) now all circle the sun in one flat plane, the nearer ones faster, and the sun is drawn at its true place. Each world
+  is lit from where the sun really is, so phases and night sides are right from every world. Time of day on the home planet follows its place in the orbit.
+- Stars are back in space (they were being bent out of the sky by the planet curve; they now have their own shader). The gas giant's ring is fixed the same way.
+- Coming in to a world, the horizon slowly turns level with it, so there is no sudden flip from looking up to looking down at landing. The view direction never turns.
+- Space speed is much slower and depends on distance from the nearest world (hundreds of m/s a few km up, thousands only in the empty between). You also travel
+  with the nearest world as it circles the sun, so planets no longer slide away from you.
+- The sound of waves no longer leaks into space or onto the other worlds.
 
 New in 7.2: A NEW TERRAIN GENERATOR, AND QUIET SPACE
 - The other worlds' ground is rebuilt: domain-warped continents and basins, ridged mountain ranges, dune fields, canyon systems with steep layered walls and a great
