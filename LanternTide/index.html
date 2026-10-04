@@ -50,8 +50,10 @@ const $ = (id) => document.getElementById(id);
 // A point at horizontal distance d from the camera drops by d*d*uCurve. That is done once, in the shared "project_vertex" chunk (and the
 // sprite shader), so every ordinary material follows it; the few hand-written shaders (the sea, the land) do the same by hand. uCurve is
 // very gentle at sea level and rises toward the planet's true curvature as you climb (see updateSpace).
-THREE.ShaderChunk.common += "\nuniform float uCurve;\n";
-THREE.ShaderChunk.project_vertex = `
+const NOFLAGS = new Set((new URLSearchParams(location.search).get("no") || "").split(","));
+const noFlag = (k) => NOFLAGS.has(k) || NOFLAGS.has("all");
+if (!noFlag("pv")) THREE.ShaderChunk.common += "\nuniform float uCurve;\n";
+if (!noFlag("pv")) THREE.ShaderChunk.project_vertex = `
   vec4 mvPosition = vec4(transformed, 1.0);
   #ifdef USE_INSTANCING
     mvPosition = instanceMatrix * mvPosition;
@@ -59,22 +61,26 @@ THREE.ShaderChunk.project_vertex = `
   { vec4 wpc = modelMatrix * mvPosition; vec2 cdc = wpc.xz - cameraPosition.xz; wpc.y -= dot(cdc, cdc) * uCurve; mvPosition = viewMatrix * wpc; }
   gl_Position = projectionMatrix * mvPosition;
 `;
-THREE.ShaderLib.sprite.vertexShader = THREE.ShaderLib.sprite.vertexShader.replace(
+if (!noFlag("pv")) THREE.ShaderLib.sprite.vertexShader = THREE.ShaderLib.sprite.vertexShader.replace(
   "vec4 mvPosition = modelViewMatrix * vec4( 0.0, 0.0, 0.0, 1.0 );",
   "vec4 mvPosition; { vec4 wps = modelMatrix * vec4( 0.0, 0.0, 0.0, 1.0 ); vec2 cds = wps.xz - cameraPosition.xz; wps.y -= dot(cds, cds) * uCurve; mvPosition = viewMatrix * wps; }"
 );
 // every material gets the shared uCurve uniform, whatever else its own onBeforeCompile does
-Object.defineProperty(THREE.Material.prototype, "onBeforeCompile", {
-  configurable: true,
-  get() {
-    const f = this._obc;
-    return (sh, r) => {
-      if (f) f.call(this, sh, r);
-      if (!sh.uniforms.uCurve) sh.uniforms.uCurve = sharedCurve;
-    };
-  },
-  set(f) { this._obc = f; },
-});
+if (!noFlag("pv")) {
+  Object.defineProperty(THREE.Material.prototype, "onBeforeCompile", {
+    configurable: true,
+    get() {
+      const f = this._obc;
+      return (sh, r) => {
+        if (f) f.call(this, sh, r);
+        if (!sh.uniforms.uCurve) sh.uniforms.uCurve = sharedCurve;
+      };
+    },
+    set(f) { this._obc = f; },
+  });
+  // (the program cache is keyed on the material's own patch, not on the wrapper above, which reads the same for every material)
+  THREE.Material.prototype.customProgramCacheKey = function () { return this._obc ? this._obc.toString() : ""; };
+}
 const sharedCurve = { value: 1 / (2 * 150000) };
 
 // ===== Helpers =====
