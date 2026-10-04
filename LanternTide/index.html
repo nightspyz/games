@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v3.9 -->
+<!-- Lantern Tide v3.10 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -37,7 +37,7 @@ canvas{display:block;touch-action:none}
 <button id="vr">Enter VR</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// Lantern Tide v3.9: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v3.10: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 (() => {
@@ -1425,6 +1425,7 @@ function rockMaterial() {
 }
 
 
+const seaRocks = []; // the breakwater rocks out in the water
 // Rocks you can stand on: the height of the top of a rock at (x, z), found by casting a ray down onto the mesh
 const rockSurfaces = [];
 const rockRay = new THREE.Raycaster();
@@ -4035,6 +4036,8 @@ const dock = (() => {
     rock.position.set(x, bedHeightJS(x, z) + s * 0.75, z);
     rock.rotation.y = rand(0, 6.28);
     g.add(rock);
+    registerRock(rock);
+    seaRocks.push(rock);
   }
   return { g, lamps, bulbMat, dockLight };
 })();
@@ -5879,6 +5882,45 @@ const setTime = (h) => {
   game.hours = ((h % 24) + 24) % 24;
   prevHours = game.hours;
 };
+// ----- teleport: key places on and around the island -----
+function teleportTo(x, z, lookX, lookZ) {
+  player.x = x;
+  player.z = z;
+  player.y = surfaceAt(x, z);
+  player.vy = 0;
+  player.swim = false;
+  player.grounded = true;
+  player.under = false;
+  player.sv.set(0, 0, 0);
+  player.waterSm = waveHeight(x, z, shared.uTime.value);
+  yaw = Math.atan2(-(lookX - x), -(lookZ - z));
+  pitch = 0;
+  lastFoot = null;
+  toggleMenu(false);
+}
+const TELEPORTS = [
+  ["Beach (start)", () => teleportTo(ISL.x, ISL.z + ISL.r - 9, ISL.x, ISL.z + ISL.r + 20)],
+  ["Campfire", () => {
+    const a = Math.PI / 2 - 0.09, r = ISL.r - 11;
+    const fx = ISL.x + Math.cos(a) * r, fz = ISL.z + Math.sin(a) * r;
+    teleportTo(fx + 2.4, fz - 1.2, fx, fz);
+  }],
+  ["Lighthouse", () => {
+    const lp = lighthouse.group.position;
+    teleportTo(lp.x - 2.5, lp.z + 5.5, lp.x, lp.z);
+  }],
+  ["Rocks at sea", () => {
+    let best = null, top = -Infinity;
+    for (const r of seaRocks) {
+      const p = r.getWorldPosition(new THREE.Vector3());
+      const h = rockSurfaceAt(p.x, p.z);
+      if (h > top) (top = h), (best = p);
+    }
+    if (best) teleportTo(best.x, best.z, ISL.x, ISL.z);
+  }],
+  ["End of the dock", () => teleportTo(ISL.x + DOCK.nx * (DOCK.r1 - 2), ISL.z + DOCK.nz * (DOCK.r1 - 2), ISL.x + DOCK.nx * (DOCK.r1 + 60), ISL.z + DOCK.nz * (DOCK.r1 + 60))],
+  ["Island hilltop", () => teleportTo(ISL.x, ISL.z, ISL.x, ISL.z + ISL.r)],
+];
 const TIME_PRESETS = [["Dawn", 6], ["Noon", 12], ["Dusk", 18], ["Night", 0]];
 const TIME_SPEEDS = [["Pause", 0], ["1×", 1], ["4×", 4], ["16×", 16]];
 const WEATHER_BUTTONS = [["Clear", "clear"], ["Cloudy", "cloudy"], ["Rain", "rain"], ["Storm", "storm"], ["Fog", "fog"], ["Mist", "mist"], ["Random", "random"]];
@@ -5898,8 +5940,8 @@ rig.add(menuPanel); // lives in your play space, so it stays put relative to you
 const SLIDER = { x: 60, y: 168, w: 780, h: 34 };
 const mbtns = [];
 const mlabels = []; // { tab, text, x, y, size, color }
-const MENU_TABS = ["Time & weather", "World", "Performance"];
-const TAB_X0 = 60, TAB_W = 236, TAB_GAP = 11;
+const MENU_TABS = ["Time & weather", "World", "Performance", "Teleport"];
+const TAB_X0 = 60, TAB_W = 176, TAB_GAP = 10;
 {
   let curTab = 0;
   const label = (text, y, size = 22, color = "#8fa6a8") => mlabels.push({ tab: curTab, text, x: 60, y, size, color });
@@ -5940,6 +5982,11 @@ const TAB_X0 = 60, TAB_W = 236, TAB_GAP = 11;
   row(q, 338, 60, 16, (i) => ((perf.rays = i), applyPerf()), (i) => perf.rays === i);
   label("Clouds shade the sea and sand", 438);
   row([["Off", 0], ["On", 1]], 450, 60, 16, (i) => ((perf.shadows = i), applyPerf()), (i) => perf.shadows === i, 60, 380);
+  // Teleport
+  curTab = 3;
+  label("Teleport", 160, 30, "#e6efee");
+  label("Jump to a place on the island", 214);
+  for (let i = 0; i < TELEPORTS.length; i += 2) row(TELEPORTS.slice(i, i + 2).map(([n, f]) => [n, f]), 226 + (i / 2) * 110, 90, 16, (f) => f(), () => false);
   mbtns.push({ tab: -1, x: 812, y: 16, w: 72, h: 52, label: "✕", click: () => toggleMenu(false), active: () => false });
 }
 const tabBtns = () => mbtns.filter((b) => b.tab === -1 || b.tab === menu.tab);
@@ -6013,7 +6060,7 @@ function drawMenu() {
       c.stroke();
     }
     c.fillStyle = on ? "#06231b" : "#e6efee";
-    c.font = "600 26px system-ui, sans-serif";
+    c.font = (b.isTab ? "600 21px" : "600 26px") + " system-ui, sans-serif";
     c.textAlign = "center";
     c.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + 9);
     c.textAlign = "left";
@@ -6059,6 +6106,7 @@ gm.innerHTML = `<div class="tabs" id="gm-tabs"></div>
 <div class="lbl">Clouds (the costliest part of the sky)</div><div class="row" id="gm-clouds"></div>
 <div class="lbl">God rays</div><div class="row" id="gm-rays"></div>
 <div class="lbl">Clouds shade the sea and sand</div><div class="row" id="gm-shadows"></div></div>
+<div class="pane" data-tab="3"><div class="lbl">Jump to a place on the island</div><div class="row" id="gm-tp"></div></div>
 <div class="hint">X or Esc closes</div>`;
 const gmButtons = [];
 const addDomRow = (id, list, onClick, active) => {
@@ -6077,6 +6125,7 @@ MENU_TABS.forEach((name, i) => {
   $("gm-tabs").appendChild(b);
   gmButtons.push({ b, active: () => menu.tab === i });
 });
+addDomRow("gm-tp", TELEPORTS, (f) => f(), () => false);
 addDomRow("gm-aurora", [["Off", 0], ["On", 1]], (i) => ((opts.aurora = i), applyOpts()), (i) => opts.aurora === i);
 addDomRow("gm-stars", STAR_LEVELS.map(([n], i) => [n, i]), (i) => ((opts.stars = i), applyOpts()), (i) => opts.stars === i);
 addDomRow("gm-waves", WAVE_LEVELS.map(([n], i) => [n, i]), (i) => ((opts.waves = i), applyOpts()), (i) => opts.waves === i);
@@ -6298,7 +6347,7 @@ addEventListener("resize", () => {
 
 renderer.setAnimationLoop(frame);
 // handy for testing in a desktop browser
-window.__lt = { blocked, opts, applyOpts, rockSurfaces, rockSurfaceAt, surfaceAt, setImprintRes, camPos, perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
+window.__lt = { TELEPORTS, blocked, opts, applyOpts, rockSurfaces, rockSurfaceAt, surfaceAt, setImprintRes, camPos, perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
 })();
 </script>
 </body>
