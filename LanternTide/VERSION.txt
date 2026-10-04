@@ -1,7 +1,19 @@
-Lantern Tide - version 7.3 (4 Oct 2026)
+Lantern Tide - version 7.4 (4 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 7.4: NAVIGATION IN SPACE, ROLL, BIGGER LAND
+- The code is split out of index.html into the js/ folder (nine files, loaded in order). Keep the folder next to index.html when you host it.
+- Space HUD: your speed (with a bar against the top speed at that height), the name and distance of every world and the sun (arrows at the edge of the view when
+  they are off to the side or behind), and a compass of the orbital plane: the ring is the plane all the planets circle in, the green UP arrow points out of it,
+  the yellow dot is the sun. Far worlds are always at least a visible dot.
+- Roll your view in space: right stick (VR) or Q / E (desktop).
+- Stars are drawn behind the planets, and the planets hide each other correctly (nearest in front).
+- The VR menu now opens anywhere (in space the camera's near plane cut it off).
+- Waves are only heard when you are in the water or near it.
+- The home planet's islands use a new relief generator (rolling hills, ridged ranges, warped so nothing lines up) and the biggest islands are larger.
+- Lakes are shallow bowls (about a metre deep) with very subtle waves.
 
 New in 7.3: A REAL SOLAR SYSTEM, STARS, AND A GENTLE ARRIVAL
 - The four planets (home, red, ice, gas giant) now all circle the sun in one flat plane, the nearer ones faster, and the sun is drawn at its true place. Each world
