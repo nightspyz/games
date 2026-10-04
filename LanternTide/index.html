@@ -52,8 +52,8 @@ const $ = (id) => document.getElementById(id);
 // very gentle at sea level and rises toward the planet's true curvature as you climb (see updateSpace).
 const NOFLAGS = new Set((new URLSearchParams(location.search).get("no") || "").split(","));
 const noFlag = (k) => NOFLAGS.has(k) || NOFLAGS.has("all");
-if (!noFlag("pv")) THREE.ShaderChunk.common += "\nuniform float uCurve;\n";
-if (!noFlag("pv")) THREE.ShaderChunk.project_vertex = `
+THREE.ShaderChunk.common += "\nuniform float uCurve;\n";
+if (!noFlag("pv") && !noFlag("pvv")) THREE.ShaderChunk.project_vertex = `
   vec4 mvPosition = vec4(transformed, 1.0);
   #ifdef USE_INSTANCING
     mvPosition = instanceMatrix * mvPosition;
@@ -61,12 +61,12 @@ if (!noFlag("pv")) THREE.ShaderChunk.project_vertex = `
   { vec4 wpc = modelMatrix * mvPosition; vec2 cdc = wpc.xz - cameraPosition.xz; wpc.y -= dot(cdc, cdc) * uCurve; mvPosition = viewMatrix * wpc; }
   gl_Position = projectionMatrix * mvPosition;
 `;
-if (!noFlag("pv")) THREE.ShaderLib.sprite.vertexShader = THREE.ShaderLib.sprite.vertexShader.replace(
+if (!noFlag("pv") && !noFlag("pvs")) THREE.ShaderLib.sprite.vertexShader = THREE.ShaderLib.sprite.vertexShader.replace(
   "vec4 mvPosition = modelViewMatrix * vec4( 0.0, 0.0, 0.0, 1.0 );",
   "vec4 mvPosition; { vec4 wps = modelMatrix * vec4( 0.0, 0.0, 0.0, 1.0 ); vec2 cds = wps.xz - cameraPosition.xz; wps.y -= dot(cds, cds) * uCurve; mvPosition = viewMatrix * wps; }"
 );
 // every material gets the shared uCurve uniform, whatever else its own onBeforeCompile does
-if (!noFlag("pv")) {
+{
   Object.defineProperty(THREE.Material.prototype, "onBeforeCompile", {
     configurable: true,
     get() {
