@@ -1,7 +1,13 @@
-Lantern Tide - version 5.0 (6 Oct 2026)
+Lantern Tide - version 5.1 (6 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 5.1:
+- Fixed everything looking blown out white on some graphics cards: a sky shader line used smoothstep with its edges the wrong way round,
+  which is undefined in GLSL (fine on some GPUs, NaN on others, and NaN draws as white). Two such lines fixed.
+- The far sea (the planet's surface at sea level) now fades into exactly the same haze colour the old far ocean did.
+- The cabin's weathered wood is lighter. A new /about page (about/index.html) tells the story of the game, with screenshots.
 
 New in 5.0: THE WORLD IS A PLANET
 - The whole world now curves like a small planet: the sea, the land, trees, boats, everything drops away below the horizon (very gently at

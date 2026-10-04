@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v5.0 -->
+<!-- Lantern Tide v5.1 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -362,7 +362,7 @@ const sky = new THREE.Mesh(
       void main() {
         vec3 d = normalize(vDir);
         vec3 col = skyColor(vec3(d.x, max(d.y, 0.0), d.z));
-        col *= 1.0 - uSpace * smoothstep(0.0, -0.25, d.y); // high up, below the horizon is the dark of space, not haze
+        col *= 1.0 - uSpace * (1.0 - smoothstep(-0.25, 0.0, d.y)); // high up, below the horizon is the dark of space, not haze
 
         // Twinkling stars
         vec3 cell = floor(d * 400.0);
@@ -5626,7 +5626,7 @@ const fwPoints = new THREE.Points(
       varying vec3 vC;
       void main() {
         float d = length(gl_PointCoord - 0.5);
-        float a = smoothstep(0.5, 0.05, d);
+        float a = 1.0 - smoothstep(0.05, 0.5, d);
         gl_FragColor = vec4(vC, a);
       }
     `,
@@ -7294,7 +7294,7 @@ let _pm = null;
 function poiMats() {
   if (!_pm)
     _pm = {
-      wood: curved(new THREE.MeshStandardMaterial({ map: driftTex, vertexColors: true, roughness: 0.92 })),
+      wood: curved(new THREE.MeshStandardMaterial({ map: driftTex, vertexColors: true, roughness: 0.92, color: new THREE.Color(1.6, 1.6, 1.6) })), // (the weathered-wood texture is dark: lift it)
       bark: curved(new THREE.MeshStandardMaterial({ map: barkTex, vertexColors: true, roughness: 0.95 })),
       stone: curved(rockMaterial()),
       cloth: curved(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide })),
@@ -8975,12 +8975,12 @@ mapBake.gen = bakeWorldMap();
 const spaceGroup = new THREE.Group();
 spaceGroup.visible = false;
 scene.add(spaceGroup);
-const planetU = {
+const planetU = Object.assign({}, shared, {
   uC: { value: new THREE.Vector3() }, uRs: { value: 150000 }, uSun: shared.uSunDir, uMoonP: { value: new THREE.Vector3() },
   uSub: { value: new THREE.Vector2() }, uMapB: { value: new THREE.Vector4(MAP_X0, MAP_Z0, 1 / (MAP_X1 - MAP_X0), 1 / (MAP_Z1 - MAP_Z0)) },
   uMap: { value: worldMapTex }, uLights: { value: worldLightTex }, uTime: shared.uTime, uCover: shared.uCloudCover, uCloudOff: shared.uCloudOffset,
   uMapReady: { value: 0 }, uHorizon: shared.uHorizon, uFogNear: waterUniforms.uFogNear, uFogFar: waterUniforms.uFogFar, uSpaceCover: { value: 0.5 },
-};
+});
 const bgShellVert = "varying vec3 vW;\nvoid main() { vec4 wp = modelMatrix * vec4(position, 1.0); vW = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }";
 const planet = new THREE.Mesh(
   new THREE.SphereGeometry(9000, 40, 20),
@@ -8991,10 +8991,11 @@ const planet = new THREE.Mesh(
     depthWrite: false,
     vertexShader: bgShellVert,
     fragmentShader: /* glsl */ `
+      ${SKY_GLSL}
       ${NOISE_GLSL}
       uniform vec3 uC; uniform float uRs; uniform vec3 uSun; uniform vec3 uMoonP; uniform vec2 uSub; uniform vec4 uMapB;
-      uniform sampler2D uMap; uniform sampler2D uLights; uniform float uTime; uniform float uCover; uniform vec2 uCloudOff; uniform float uMapReady;
-      uniform vec3 uHorizon; uniform float uFogNear; uniform float uFogFar; uniform float uSpaceCover;
+      uniform sampler2D uMap; uniform sampler2D uLights; uniform float uCover; uniform vec2 uCloudOff; uniform float uMapReady;
+      uniform float uFogNear; uniform float uFogFar; uniform float uSpaceCover;
       varying vec3 vW;
       float cloudAt(vec2 pc) {
         vec2 cp = pc * 0.00028 + uCloudOff * 0.000006 + vec2(uTime * 0.0001, 0.0);
@@ -9013,7 +9014,8 @@ const planet = new THREE.Mesh(
         vec3 n = P / uRs;
         float dist = t;
         float fog = smoothstep(uFogNear, uFogFar, dist);
-        if (fog > 0.999) { gl_FragColor = vec4(uHorizon, 1.0); return; }
+        vec3 haze = skyColor(normalize(vec3(rd.x + 1e-4, 0.0, rd.z))); // the same haze the far sea always faded into
+        if (fog > 0.999) { gl_FragColor = vec4(haze, 1.0); return; }
         vec3 V = -rd;
         float th = atan(length(n.xz), n.y);
         float ph = atan(n.z, n.x);
@@ -9035,7 +9037,7 @@ const planet = new THREE.Mesh(
         vec3 R = reflect(rd, n);
         lit += sunC * pow(max(dot(R, uSun), 0.0), 220.0) * (1.0 - land) * 2.2 * (1.0 - cl);
         float F = pow(1.0 - max(dot(n, V), 0.0), 5.0);
-        lit = mix(lit, uHorizon * (0.5 + 0.5 * day), F * 0.55 * (1.0 - land));
+        lit = mix(lit, haze * (0.5 + 0.5 * day), F * 0.55 * (1.0 - land));
         vec3 cc = mix(vec3(0.12, 0.13, 0.17), vec3(1.0), clamp(diff * 0.95 + 0.12, 0.0, 1.0)) * (0.12 + 0.88 * day);
         lit = mix(lit, cc, cl * 0.92);
         vec4 Lt = texture2D(uLights, clamp(uv, 0.0, 1.0));
@@ -9043,7 +9045,7 @@ const planet = new THREE.Mesh(
         lit += (vec3(1.0, 0.76, 0.42) * Lt.r * 1.7 + vec3(1.0, 0.33, 0.07) * Lt.g * 1.5) * inside * (nightK * 0.95 + 0.05) * (1.0 - cl * 0.85);
         lit += vec3(0.05, 0.07, 0.12) * max(dot(n, normalize(uMoonP - uC)), 0.0) * nightK * 0.5;
         lit = 1.0 - exp(-lit * 1.35);
-        gl_FragColor = vec4(mix(lit, uHorizon, fog), 1.0);
+        gl_FragColor = vec4(mix(lit, haze, fog), 1.0);
       }
     `,
   })
@@ -9548,7 +9550,7 @@ addEventListener("resize", () => {
 
 renderer.setAnimationLoop(frame);
 // handy for testing in a desktop browser
-window.__lt = { mapBake, spaceState, planet, atmosphere, islandRoad, worldRoot, renderer, chunks, islandCell, nearestIsland, loadChunkNow, teleportToIsland, islandPOIs, poiSave, boatClearance, bedHeightJS, boatDrive, TELEPORTS, blocked, opts, applyOpts, rockSurfaces, rockSurfaceAt, surfaceAt, setImprintRes, camPos, perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
+window.__lt = { setWeatherPreset, wx, mapBake, spaceState, planet, atmosphere, islandRoad, worldRoot, renderer, chunks, islandCell, nearestIsland, loadChunkNow, teleportToIsland, islandPOIs, poiSave, boatClearance, bedHeightJS, boatDrive, TELEPORTS, blocked, opts, applyOpts, rockSurfaces, rockSurfaceAt, surfaceAt, setImprintRes, camPos, perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
 })();
 </script>
 </body>

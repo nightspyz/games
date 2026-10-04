@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lantern Tide: about the game</title>
+<meta name="description" content="Lantern Tide is a WebXR island world for the Quest browser, written as one HTML file. What it is, what is in it, and how it grew.">
+<style>
+  :root {
+    --bg: #07161f; --panel: #0e2532; --panel2: #123043; --ink: #e6efee; --dim: #8fa6a8;
+    --teal: #7ff0c8; --warm: #ffd98a; --coral: #ff8a6a; --line: #ffffff1a;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--teal); }
+  img { max-width: 100%; display: block; }
+  .wrap { width: min(1080px, 100% - 32px); margin: 0 auto; }
+  header.hero { position: relative; min-height: min(78vh, 720px); display: grid; align-items: end; overflow: hidden; }
+  header.hero img.bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  header.hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, #07161f00 30%, #07161fcc 78%, var(--bg) 100%); }
+  header.hero .wrap { position: relative; z-index: 1; padding: 0 0 48px; }
+  h1 { font-size: clamp(40px, 8vw, 84px); line-height: 1; margin: 0 0 12px; letter-spacing: -0.02em; }
+  h1 span { color: var(--warm); }
+  .lede { font-size: clamp(18px, 2.6vw, 24px); max-width: 38em; color: #d3e3e1; margin: 0 0 24px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn { display: inline-block; padding: 12px 20px; border-radius: 999px; background: var(--teal); color: #05241b; font-weight: 700; text-decoration: none; }
+  .btn.alt { background: #ffffff18; color: var(--ink); }
+  nav.toc { position: sticky; top: 0; z-index: 5; background: #07161fdd; backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  nav.toc .wrap { display: flex; gap: 18px; overflow-x: auto; padding: 10px 0; white-space: nowrap; font-size: 14px; }
+  nav.toc a { color: var(--dim); text-decoration: none; }
+  nav.toc a:hover { color: var(--teal); }
+  section { padding: 56px 0 8px; }
+  h2 { font-size: clamp(26px, 4vw, 38px); margin: 0 0 8px; letter-spacing: -0.01em; }
+  h2 + p.sub { color: var(--dim); margin: 0 0 24px; }
+  h3 { margin: 28px 0 6px; font-size: 20px; color: var(--warm); }
+  p { margin: 0 0 14px; max-width: 46em; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 24px 0 8px; }
+  .fact { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .fact b { display: block; font-size: 26px; color: var(--teal); }
+  .fact span { color: var(--dim); font-size: 14px; }
+  figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  figure img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #0b1c27; }
+  figcaption { padding: 10px 14px 12px; font-size: 14px; color: var(--dim); }
+  figcaption b { color: var(--ink); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin: 20px 0; }
+  .grid.two { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: center; margin: 22px 0; }
+  .split.flip > :first-child { order: 2; }
+  @media (max-width: 760px) { .split, .split.flip { grid-template-columns: 1fr; } .split.flip > :first-child { order: 0; } }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; background: var(--panel); border-radius: 12px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--warm); font-weight: 600; width: 34%; }
+  tr:last-child th, tr:last-child td { border-bottom: 0; }
+  code, kbd { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; background: #ffffff14; padding: 1px 6px; border-radius: 6px; }
+  .timeline { position: relative; margin: 24px 0 0; padding-left: 26px; border-left: 2px solid #ffffff22; }
+  .step { position: relative; margin: 0 0 22px; }
+  .step::before { content: ""; position: absolute; left: -35px; top: 7px; width: 14px; height: 14px; border-radius: 50%; background: var(--teal); border: 3px solid var(--bg); }
+  .step .ver { display: inline-block; font-weight: 700; color: var(--warm); margin-right: 8px; }
+  .step .ask { color: var(--dim); font-style: italic; margin: 2px 0 4px; }
+  .step p { margin: 0; }
+  .callout { background: linear-gradient(135deg, #123043, #0e2532); border: 1px solid #7ff0c833; border-radius: 16px; padding: 20px 22px; margin: 22px 0; }
+  .callout p:last-child { margin-bottom: 0; }
+  footer { margin: 64px 0 40px; color: var(--dim); font-size: 14px; border-top: 1px solid var(--line); padding-top: 20px; }
+  ul { padding-left: 1.2em; max-width: 46em; }
+  li { margin: 0 0 6px; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <img class="bg" src="img/sunset.jpg" alt="Sunset on the island beach in Lantern Tide">
+  <div class="wrap">
+    <h1>Lantern <span>Tide</span></h1>
+    <p class="lede">A quiet WebXR world of islands, ocean and sky, for the Quest browser. Walk a beach through a whole day and night, swim, sail, fly up until the world is a small round planet below you. The entire game is one HTML file.</p>
+    <div class="btns">
+      <a class="btn" href="../index.html">Play it</a>
+      <a class="btn alt" href="#story">How it got here</a>
+      <a class="btn alt" href="#controls">Controls</a>
+    </div>
+  </div>
+</header>
+
+<nav class="toc"><div class="wrap">
+  <a href="#what">What it is</a><a href="#beach">The beach</a><a href="#sea">Sea and boats</a><a href="#world">The wider world</a>
+  <a href="#places">Places to find</a><a href="#space">Space</a><a href="#controls">Controls</a><a href="#story">How we got here</a><a href="#inside">Under the hood</a>
+</div></nav>
+
+<main class="wrap">
+
+<section id="what">
+  <h2>What it is</h2>
+  <p class="sub">An exploration toy, not a game with a score.</p>
+  <p>You start on a sand beach at the edge of a small island. There is nothing to win. You can walk, run, jump onto rocks, swim, climb into a boat, light a fire, draw in the sand with a stick, launch fireworks, fly a drone, and, if you want to, point a controller at the sky and fly away from the island entirely: past the clouds, past the point where the sky turns black, until your world is a small planet with a sun, a moon and a few neighbours.</p>
+  <p>Nothing is loaded from a file. The sky, the waves, the sand, the trees, the rocks, the buildings, the music of the wind and the sound of the engine are all generated by code when the page opens. That is why a world this size fits in a single file you can host anywhere with https and open in the Quest browser.</p>
+  <div class="facts">
+    <div class="fact"><b>1 file</b><span>index.html, with three.js from a CDN. No assets, no build step.</span></div>
+    <div class="fact"><b>8 min</b><span>for a full day and night. Time and weather are yours to change.</span></div>
+    <div class="fact"><b>37+1</b><span>islands in a 9 km world (plus the home island), always the same ones for a given seed.</span></div>
+    <div class="fact"><b>1 → 5.0</b><span>versions, each one a conversation turn.</span></div>
+  </div>
+</section>
+
+<section id="beach">
+  <h2>The beach, the day, the night</h2>
+  <p class="sub">Where it started, and still where you begin.</p>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/beach.jpg" alt="Midday on the beach"><figcaption><b>Midday.</b> Gerstner swell, breaking waves, foam that runs up the sand and back, caustics in the shallows, a volumetric sky with clouds you can see the shapes of.</figcaption></figure>
+    <figure><img loading="lazy" src="img/sunset.jpg" alt="Sunset"><figcaption><b>Sunset.</b> Gold to orange to peach, with the reds and purples kept low so it reads as a real evening. God rays come through gaps in the cloud.</figcaption></figure>
+    <figure><img loading="lazy" src="img/lighthouse.jpg" alt="The lighthouse at dusk"><figcaption><b>The lighthouse.</b> A textured tower on a rock-ringed hill, with a cone-shaped beam that fades out and sweeps round at night.</figcaption></figure>
+    <figure><img loading="lazy" src="img/lanterns.jpg" alt="Festival lanterns at night"><figcaption><b>Festival lanterns.</b> Chinese lanterns rise into the sky, lotus lanterns drift on the water, and red ones hang on bamboo along the beach. They are off by default; turn them on in the menu.</figcaption></figure>
+  </div>
+  <div class="split">
+    <div>
+      <h3>Sand that remembers you</h3>
+      <p>Your footsteps are stamped into a texture that wraps around you, and the sand shader reads it as hollows: damp, packed sand at the bottom, a lip around the edge. A stick lies on the beach so you can draw. The tide, the rain and time slowly smooth it all away again.</p>
+      <h3>A fire for the night</h3>
+      <p>The campfire is a real light source for the sand, the water and nearby lamps. Rockets can be lit from it.</p>
+    </div>
+    <figure><img loading="lazy" src="img/campfire.jpg" alt="Campfire at night"><figcaption><b>The campfire</b> on the south beach, with its stones and logs.</figcaption></figure>
+  </div>
+</section>
+
+<section id="sea">
+  <h2>The sea, under and over</h2>
+  <p class="sub">Borrowed from your Coastline project and extended.</p>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/underwater.jpg" alt="Swimming underwater"><figcaption><b>Swimming.</b> Wade out and you float with your eyes just above the surface, riding the waves. Hold the triggers and sweep your arms to push yourself along. Dive and the world turns to teal murk, with a bright window to the sky above and muffled sound.</figcaption></figure>
+    <figure><img loading="lazy" src="img/dock-boat.jpg" alt="The dock and boat"><figcaption><b>The dock and the boat.</b> A timber pier in a sheltered, dredged basin behind a breakwater. Press <kbd>Y</kbd> to take the helm anywhere at sea, and again to step away. The menu can send it home to the dock.</figcaption></figure>
+  </div>
+  <p>The reef (seven kinds of coral), kelp forests, fish schools and leaping fish all come from Coastline and now follow you to whichever island you are at. So do the gulls, which circle where the fish are jumping and dive.</p>
+</section>
+
+<section id="world">
+  <h2>The wider world</h2>
+  <p class="sub">Islands that appear as you travel, and are the same every time.</p>
+  <p>The world is a grid of cells. Each cell is hashed together with a world seed to decide whether it holds an island, what kind, how big, and where. An island's height is a single formula written twice, once in JavaScript for walking and building the land, and once in GLSL for the water, so the waves break exactly where the shore is. Nothing needs to be loaded to know where an island is; the land is built a little at a time as you approach, out in the haze where you cannot see it happen.</p>
+  <div class="grid">
+    <figure><img loading="lazy" src="img/volcano.jpg" alt="A volcano island"><figcaption><b>Volcano.</b> Smoke, lava flows down the slopes, a red glow in the dark.</figcaption></figure>
+    <figure><img loading="lazy" src="img/city.jpg" alt="A city island at night"><figcaption><b>City island.</b> A street grid, towers that rise toward the middle, lit windows you can see from far out to sea.</figcaption></figure>
+    <figure><img loading="lazy" src="img/airport.jpg" alt="The airport island"><figcaption><b>Airport.</b> Runway, tower, hangar and terminal, with planes landing and taking off on a loop.</figcaption></figure>
+    <figure><img loading="lazy" src="img/turbines.jpg" alt="An offshore wind farm"><figcaption><b>Wind farm.</b> Turbines turn into the wind. There is also an oil rig you can stand on, ships, and airliners overhead.</figcaption></figure>
+  </div>
+  <p>Other islands are tropical (forests, rivers, farm fields, sea cliffs), temple islands with stepped terraces, and swamps with mangroves. Some have a coast road with power lines, guard rails and cars, built the way Coastline builds its roads: resting on top of the land, bridging dips.</p>
+</section>
+
+<section id="places">
+  <h2>Places worth finding</h2>
+  <p class="sub">Hand-made, set into the generated land.</p>
+  <p>On top of the generated islands sit a few authored places. Each is placed by rules (flat enough, near water or deep in forest, away from the others), the ground is levelled and blended under it, trees keep clear, and a dirt path leads to it. What you do there is remembered between visits.</p>
+  <div class="grid">
+    <figure><img loading="lazy" src="img/cabin.jpg" alt="The fishing cabin"><figcaption><b>Fishing cabin.</b> A weathered hut with a porch lantern you can light, a drying rack, a pier and a dinghy.</figcaption></figure>
+    <figure><img loading="lazy" src="img/camp.jpg" alt="The abandoned campsite"><figcaption><b>Abandoned campsite.</b> A collapsed tent, a cold fire ring to relight, log seats, and a diary.</figcaption></figure>
+    <figure><img loading="lazy" src="img/shrine.jpg" alt="The forest shrine"><figcaption><b>Forest shrine.</b> A gate, stone lanterns and a mossy shrine in a clearing. Make an offering and the lanterns wake and fireflies appear.</figcaption></figure>
+  </div>
+</section>
+
+<section id="space">
+  <h2>Up</h2>
+  <p class="sub">The world is a small planet.</p>
+  <div class="split">
+    <div>
+      <p>The whole world curves away below the horizon, very gently at sea level so islands still rise over it, and more as you climb. Fly with the trigger (jump first) at up to 7 km per second and the sky fades slowly from blue to black, the clouds fall away beneath you, and above about 10 km there is nothing but stars.</p>
+      <p>Looking down, you see your planet: islands with their shallows, clouds and their shadows, a day side and a dark side with a soft terminator, the sun's glint on the sea, lights on the night side where the cities and the airport are, and a thin atmosphere glowing blue at the edge and orange at sunset. The sun and moon are in their real places, with phases, and a few other planets are out there too.</p>
+    </div>
+    <figure><img loading="lazy" src="img/planet.jpg" alt="The planet from space"><figcaption><b>From 14 km up.</b> The island patch, clouds and the atmosphere's rim.</figcaption></figure>
+  </div>
+  <figure><img loading="lazy" src="img/planet-night.jpg" alt="The planet's night side from space"><figcaption><b>Night side.</b> Cities and the airport lit up, the terminator glowing orange.</figcaption></figure>
+</section>
+
+<section id="controls">
+  <h2>Controls</h2>
+  <p class="sub">VR on Quest, or keyboard and mouse on a screen.</p>
+  <div class="split">
+    <table>
+      <tr><th>Move</th><td>Left stick (VR), <kbd>W A S D</kbd></td></tr>
+      <tr><th>Turn</th><td>Right stick (smooth), drag the mouse</td></tr>
+      <tr><th>Run</th><td>Click the left stick, hold <kbd>Shift</kbd></td></tr>
+      <tr><th>Jump</th><td><kbd>A</kbd> / <kbd>Space</kbd></td></tr>
+      <tr><th>Fly</th><td>Jump, then hold a trigger and point (hold <kbd>Space</kbd> on a screen)</td></tr>
+      <tr><th>Swim</th><td>Stick, or hold the triggers and sweep your arms</td></tr>
+      <tr><th>Pick up / put down</th><td>Grip near it, <kbd>E</kbd></td></tr>
+      <tr><th>Use something</th><td>Trigger with a hand close to it, <kbd>E</kbd></td></tr>
+      <tr><th>Boat</th><td><kbd>Y</kbd> to board or leave; left stick drives</td></tr>
+      <tr><th>Menu</th><td><kbd>X</kbd> (left controller) / <kbd>X</kbd></td></tr>
+      <tr><th>Minimap size</th><td>Menu, <kbd>M</kbd></td></tr>
+    </table>
+    <figure><img loading="lazy" src="img/menu.jpg" alt="The in-game menu"><figcaption><b>The menu.</b> Time and weather, world options (aurora, stars, waves, sand detail, festival lanterns), performance, teleport to any kind of place, and travel (flight and boat speed).</figcaption></figure>
+  </div>
+</section>
+
+<section id="story">
+  <h2>How we got here</h2>
+  <p class="sub">One conversation, built a request at a time.</p>
+  <p>Lantern Tide began as a way to reuse the ocean from <b>Coastline</b>, your coastal exploration project, in a new VR experience. Every version below came from a message in the same running conversation with Claude Code, which wrote the code, ran it in a headless browser to check it, and committed it. Nothing here has been tried on a headset by the assistant; you have been the one testing on the Quest, and the fixes you asked for are part of the story.</p>
+  <div class="timeline">
+    <div class="step"><span class="ver">1.0</span><div class="ask">“use my water physics from my game, and create a new vr experience with it”</div><p>A raft on Coastline's ocean: Gerstner waves, foam, caustics, sky, with floating lanterns as the game.</p></div>
+    <div class="step"><span class="ver">2.0</span><div class="ask">“remove the game mechanics and menus … let me start walking on the island beach … let me experience the whole day night cycle”</div><p>The raft became a beach. Festival lanterns, a procedural sand shader, wind-driven palms, a day that lasts eight minutes. Smooth turning replaced snap turning.</p></div>
+    <div class="step"><span class="ver">2.1</span><div class="ask">“i want my feet to make imprints in the sand, give me a stick … a small campfire … godrays … the lighthouse beam”</div><p>Footprints and drawing in the sand, a campfire that lights the beach, a conical lighthouse beam, god rays through the clouds, better materials for trees, rocks and the lighthouse, and a run mode.</p></div>
+    <div class="step"><span class="ver">3.0</span><div class="ask">“bring in more content from coastline … fish schools and corals, seaweed … the weather system … the boat parked on a small dock”</div><p>Coastline's reef, kelp, fish schools, random weather and fog, and the boat moored at a new dock behind a breakwater.</p></div>
+    <div class="step"><span class="ver">3.1 – 3.3</span><div class="ask">“give me pickable fireworks … the drone from coastline as a pickable controller … a game menu when i press X”</div><p>Fireworks you can light, a drone with a hand controller that has a live screen, a VR menu with a fps meter, and performance settings for the costly sky.</p></div>
+    <div class="step"><span class="ver">3.4 – 3.5</span><div class="ask">“the clouds look grainy dithered … the sunset is overly dramatic”</div><p>Clouds and god rays are drawn into a small cached map of the sky and blurred, which removed the grain and made them cheap. Sunsets turned orange.</p></div>
+    <div class="step"><span class="ver">3.6 – 3.8</span><div class="ask">“add more controls … make that look like it's dug in the sand … better rocks … let me jump on the rocks, and swim some more”</div><p>A tabbed menu, dug-in sand marks, layered rock material, jumping onto rocks, swimming with underwater visuals and sound, arm-stroke swimming, and floating with just your head out.</p></div>
+    <div class="step"><span class="ver">3.9 – 3.12</span><div class="ask">“menu in my local view space … a teleport menu … flight, vrchat style … the code to control the boat from coastline”</div><p>Menu that follows you, teleport tab, flight, and driving the boat with <kbd>Y</kbd>.</p></div>
+    <div class="step"><span class="ver">4.0</span><div class="ask">“i want to expand the world a lot, generate random islands and points of interest … in chunks … make the world curve”</div><p>The streamed island world, volcano, temple, swamp and city islands, three hand-made places, a minimap, and a planned structure for adding more places (see <code>WORLD_DESIGN.md</code>).</p></div>
+    <div class="step"><span class="ver">4.1 – 4.2</span><div class="ask">“add more things from coastline: the ships, the airplanes, the birds, the oil rigs and windmills … roads and cars … farming fields … cliffs”</div><p>Ships, an oil rig, wind turbines, gulls, planes and an airport island, roads with power lines and cars, farmland and sea cliffs. Buildings were fixed to be solid, and roads were settled onto the landscape.</p></div>
+    <div class="step"><span class="ver">5.0</span><div class="ask">“make the entire world a sphere like a planet … fly up to space … the sky fade from blue to black slowly”</div><p>The world became a planet: a curve applied to everything, a ray-traced sphere standing in for the far sea, a baked map of the islands for the view from space, an atmosphere, sun, moon, stars and neighbours. Flight became much faster.</p></div>
+  </div>
+  <div class="callout">
+    <p><b>A note on what was tested.</b> Everything was checked in a headless desktop browser with software rendering, at about one frame per second, using scripted visits and screenshots. Frame rate on a real Quest 3 is untested, and the scene is heavy (the sea is drawn twice, and the base reef and sky were already costly). If it stutters, the Performance tab is the first place to look. The screenshots on this page were captured the same way.</p>
+  </div>
+</section>
+
+<section id="inside">
+  <h2>Under the hood</h2>
+  <p class="sub">The ideas that made it work in a single file.</p>
+  <h3>One formula, two languages</h3>
+  <p>Wave heights, shoreline shape and island height are written once in JavaScript and once in GLSL, kept identical, so physics, boats and the water shader agree.</p>
+  <h3>Deterministic worlds</h3>
+  <p>A cell's hash decides its island, so revisiting a place can never change it. The shaders get the nine cells round the camera as uniforms, and need no geometry to know where land is.</p>
+  <h3>A budget for building</h3>
+  <p>Islands are built in generators that run for a few milliseconds a frame, nearest first: coarse land, cheap instanced trees, then detail as you approach. Places of interest have three levels: a name, a simple silhouette, and a full scene with props, lights and things to use.</p>
+  <h3>A curved world</h3>
+  <p>One line in three.js's shared vertex-projection chunk drops every vertex by distance squared, so every material bends with the world. The far sea is a sphere traced in a shader with the same curvature, and a map of all the islands, baked in the background from the same height formula, paints it from space.</p>
+  <h3>Smooth skies</h3>
+  <p>Clouds and god rays are marched into a small map of the whole sky, a quarter of it per frame, then blurred when read back. That is what removed the grain and made it affordable.</p>
+</section>
+
+<footer>
+  <p>Lantern Tide runs on <a href="https://threejs.org">three.js</a> r128. Ocean, sky, reef, boat, fireworks, drone, ships, roads and fields come from your Coastline project. See <a href="../VERSION.txt">VERSION.txt</a> for the full change list and <a href="../WORLD_DESIGN.md">WORLD_DESIGN.md</a> for the world and places-of-interest design.</p>
+</footer>
+
+</main>
+</body>
+</html>
