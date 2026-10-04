@@ -9,6 +9,9 @@ New in 7.6: A REAL CITY
   plant on the rest, setback tiers on the tall ones, towers toward the middle only.
 - Asphalt streets, street lamps every 20 m (glowing at night), and cars driving the streets with headlights.
 - The ground is no longer flat: rolling hills, with buildings founded down to the low corner on slopes. Big city islands are built over only in a core.
+- The city now fills only a ragged patch of its island (the rest stays green with palms and woodland), with street trees along the pavements, trees in the gaps between
+  buildings and denser parks. Street lamps and car headlamps throw soft cones of light that fade at their edges and along their length, like the lighthouse beam;
+  each street lamp's cone points down and lights the road beneath it.
 - Life in the streets: crosswalks, a dashed centre line, traffic lights that cycle (the cross street opposite), parks with trees and a fountain in the one nearest
   the middle, aerials with blinking red lights, lit billboards on some roofs.
 - Street lamps now really light up at night: a warm pool of light on the road under every lamp, a glowing lamp head and a bigger halo.

@@ -894,16 +894,18 @@ function* extrasTrees(c) {
   if (a.type === 1) kinds = a.veg === 2 ? [["broad", 1]] : a.veg === 1 ? [["broad", 1]] : null;
   else if (a.type === 2) kinds = [["snag", 1]];
   else if (a.type === 3) kinds = [["cypress", 0.8], ["broad", 0.2]];
+  else if (a.type === 5) kinds = [["broad", 0.7], ["cypress", 0.3]];
   else return;
   if (!kinds) return;
   const area = a.r * a.r;
-  const want = Math.floor(area * (a.type === 1 ? (a.veg === 2 ? 0.0034 : 0.0016) : a.type === 2 ? 0.0009 : 0.0016));
+  const want = Math.floor(area * (a.type === 1 ? (a.veg === 2 ? 0.0034 : 0.0016) : a.type === 2 ? 0.0009 : a.type === 5 ? 0.0012 : 0.0016));
   const lists = {}, m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new THREE.Vector3(), p = new THREE.Vector3();
   let total = 0;
   for (let tries = 0; tries < want * 6 && total < want; tries++) {
     const th = R() * 6.2832, rr = Math.sqrt(R()) * isleCoastR(a, th), x = a.x + Math.cos(th) * rr, z = a.z + Math.sin(th) * rr;
     const d = isleDist(a, x, z), h = bedHeightJS(x, z);
-    if (d > -10 || h < 1.5 || h > (a.type === 2 ? 40 : 16)) continue;
+    if (d > -10 || h < 1.5 || h > (a.type === 2 ? 40 : a.type === 5 ? 30 : 16)) continue;
+    if (a.type === 5 && inCityZone(a, x, z, 26)) continue; // (the city's own streets and parks carry its trees)
     const f = forestDensity(x, z);
     if (R() > smooth(0.34, 0.6, f) * 0.95 + 0.06) continue;
     if (poiKeepClear(a, x, z, 3) || (a.paths && distToPaths(a, x, z) < 2.4) || (a.farm && farmMask(a, x, z) > 0.1) || nearRoad(a, x, z, 8)) continue;
@@ -1143,12 +1145,13 @@ function* buildIslandExtras(c) {
     const tmp = new THREE.Color(), rc = new THREE.Color();
     const winP = [], winC = [], lampsP = [], poles = [], runs = [], parks = [], masts = [], signBuf = newBuf();
     const ang = ((a.p2 - 3.14) / 3.14) * 0.28, cA = Math.cos(ang), sA = Math.sin(ang);
-    const W2 = (u, v) => [a.x + u * cA - v * sA, a.z + u * sA + v * cA];
-    const Rc = Math.min(a.r * 0.82, 330), E = Rc + 60; // the built-up core (bigger islands are not built over end to end)
+    const zone = cityZone(a), Rc = zone.R, E = Rc * 1.25 + 60; // the built-up patch (the rest of the island stays green)
+    const W2 = (u, v) => [zone.x + u * cA - v * sA, zone.z + u * sA + v * cA];
     const lines = () => { const out = []; let p = -E - R() * 16; while (p < E) { out.push(p); p += 26 + R() * 24 + (out.length % 5 === 0 ? 8 : 0); } return out; };
     const U = lines(), V = lines();
     const sw = (i) => (i % 4 === 0 ? 14 : 9); // every fourth street is an avenue
-    const inCity = (x, z, m) => isleDist(a, x, z) < -m && Math.hypot(x - a.x, z - a.z) < Rc + 30;
+    const inCity = (x, z, m) => isleDist(a, x, z) < -m && inCityZone(a, x, z, 0);
+    const trees = []; // [x, y, z, size, yaw]: street trees, trees on empty lots and in the parks
     // the streets: a ribbon of asphalt on the ground every 5 m, split where the street runs out of land
     const street = (along, k, horizontal) => {
       const width = sw(k), pos = horizontal ? V[k] : U[k];
@@ -1166,6 +1169,10 @@ function* buildIslandExtras(c) {
         asph.nor.push(0, 1, 0, 0, 1, 0);
         if (run.pts.length > 1) { const k0 = o - 2; asph.idx.push(k0, o, k0 + 1, k0 + 1, o, o + 1); }
         const n = run.pts.length;
+        if (n % 2 === 0 && R() < 0.55) { // street trees on the pavement, between the lamps
+          const side = R() < 0.5 ? 1 : -1, off = width / 2 + 2.4;
+          trees.push([x + rx * off * side, bedHeightJS(x + rx * off * side, z + rz * off * side), z + rz * off * side, 0.6 + R() * 0.5, R() * 6.28]);
+        }
         if (n % 4 === 0) { // street lamps: a pole every 20 m, alternating sides
           const side = (n / 4) % 2 ? 1 : -1, off = width / 2 + 1.1;
           lampsP.push(x + rx * off * side, y + 6.1, z + rz * off * side);
@@ -1183,12 +1190,15 @@ function* buildIslandExtras(c) {
         if (u1 - u0 < 10 || v1 - v0 < 10) continue;
         const [mx, mz] = W2((u0 + u1) / 2, (v0 + v1) / 2);
         if (!inCity(mx, mz, 55) || !inCity(...W2(u0, v0), 30) || !inCity(...W2(u1, v1), 30) || !inCity(...W2(u0, v1), 30) || !inCity(...W2(u1, v0), 30)) continue;
-        if (R() < 0.16) { parks.push([u0, u1, v0, v1, Math.hypot(mx - a.x, mz - a.z)]); continue; } // a park
-        const rho = Math.hypot(mx - a.x, mz - a.z) / Rc;
+        if (R() < 0.16) { parks.push([u0, u1, v0, v1, Math.hypot(mx - zone.x, mz - zone.z)]); continue; } // a park
+        const rho = Math.hypot(mx - zone.x, mz - zone.z) / (Rc * 1.1);
         const nu = u1 - u0 > 34 ? (R() < 0.6 ? 2 : 1) : 1, nv = v1 - v0 > 34 ? (R() < 0.6 ? 2 : 1) : 1;
         for (let p = 0; p < nu; p++)
           for (let q = 0; q < nv; q++) {
-            if (R() < 0.12 + 0.3 * smooth(0.55, 1, rho)) continue; // gaps, more of them toward the edge
+            if (R() < 0.12 + 0.3 * smooth(0.55, 1, rho)) { // a gap, more of them toward the edge: a few trees stand in it
+              for (let k = 0, m = 1 + Math.floor(R() * 4); k < m; k++) { const [x, z] = W2(lerp(u0, u1, p / nu + (0.1 + 0.8 * R()) / nu), lerp(v0, v1, q / nv + (0.1 + 0.8 * R()) / nv)); trees.push([x, bedHeightJS(x, z), z, 0.7 + R() * 0.8, R() * 6.28]); }
+              continue;
+            }
             const lu0 = lerp(u0, u1, p / nu) + 1 + R() * 3, lu1 = lerp(u0, u1, (p + 1) / nu) - 1 - R() * 3, lv0 = lerp(v0, v1, q / nv) + 1 + R() * 3, lv1 = lerp(v0, v1, (q + 1) / nv) - 1 - R() * 3;
             let w = lu1 - lu0, d = lv1 - lv0;
             if (w < 7 || d < 7) continue;
@@ -1308,7 +1318,6 @@ function* buildIslandExtras(c) {
     tlP.frustumCulled = false;
     c.group.add(tlP);
     // parks: grass laid over the ground, with trees (and a fountain in the one nearest the middle)
-    const trees = [];
     let fountain = null;
     parks.sort((p, q) => p[4] - q[4]);
     parks.forEach((pk, pi) => {
@@ -1328,22 +1337,20 @@ function* buildIslandExtras(c) {
       const gm = new THREE.Mesh(gg, curved(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })));
       gm.frustumCulled = false;
       c.group.add(gm);
-      const nt = Math.floor(((u1 - u0) * (v1 - v0)) / 110);
+      const nt = Math.floor(((u1 - u0) * (v1 - v0)) / 70);
       for (let k = 0; k < nt; k++) { const [x, z] = W2(lerp(u0, u1, 0.06 + 0.88 * R()), lerp(v0, v1, 0.06 + 0.88 * R())); trees.push([x, bedHeightJS(x, z), z, 0.8 + R() * 0.9, R()]); }
       if (pi === 0) fountain = W2((u0 + u1) / 2, (v0 + v1) / 2);
     });
     if (trees.length) {
-      const tm = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.15, 0.22, 2.6, 5).translate(0, 1.3, 0), curved(new THREE.MeshLambertMaterial({ color: 0x5a4330 })), trees.length);
-      const cm = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1.7, 0).translate(0, 3.6, 0), curved(new THREE.MeshLambertMaterial()), trees.length);
-      cm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(trees.length * 3), 3);
-      const m4 = new THREE.Matrix4(), col = new THREE.Color();
-      trees.forEach(([x, y, z, k, v], i) => {
-        m4.makeScale(k, k, k).setPosition(x, y - 0.1, z);
-        tm.setMatrixAt(i, m4); cm.setMatrixAt(i, m4);
-        cm.setColorAt(i, col.setHSL(0.25 + 0.07 * v, 0.5, 0.2 + 0.12 * v));
+      const T = treeGeos(), by = [[], [], []], m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), e4 = new THREE.Euler(), sc4 = new THREE.Vector3(), p4 = new THREE.Vector3();
+      trees.forEach((t) => by[Math.floor(R() * 3)].push(t));
+      by.forEach((list, k) => {
+        if (!list.length) return;
+        const im = new THREE.InstancedMesh(T.broad[k], T.mat, list.length);
+        list.forEach(([x, y, z, sz, yw], i) => { e4.set(0, yw, 0); im.setMatrixAt(i, m4.compose(p4.set(x, y - 0.15, z), q4.setFromEuler(e4), sc4.set(sz, sz * (0.85 + 0.3 * R()), sz))); });
+        im.frustumCulled = false;
+        c.group.add(im);
       });
-      tm.frustumCulled = cm.frustumCulled = false;
-      c.group.add(tm, cm);
     }
     if (fountain) {
       const [fx, fz] = fountain, fy = bedHeightJS(fx, fz);
@@ -1382,6 +1389,16 @@ function* buildIslandExtras(c) {
       for (let i = 0; i < lampsP.length; i += 3) hm.setMatrixAt(i / 3, m4.makeTranslation(lampsP[i], lampsP[i + 1] + 0.05, lampsP[i + 2]));
       hm.frustumCulled = false;
       c.group.add(hm);
+    }
+    // each street lamp throws a soft cone of light down onto the road
+    let lampConeMat = null;
+    if (lampsP.length) {
+      lampConeMat = lightConeMaterial(0xffc47a);
+      const lc = new THREE.InstancedMesh(unitCone(), lampConeMat, lampsP.length / 3);
+      const m4 = new THREE.Matrix4(), qd = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2), sc4 = new THREE.Vector3(8, 8, 6.0), p4 = new THREE.Vector3();
+      for (let i = 0; i < lampsP.length; i += 3) lc.setMatrixAt(i / 3, m4.compose(p4.set(lampsP[i], lampsP[i + 1] - 0.1, lampsP[i + 2]), qd, sc4));
+      lc.frustumCulled = false;
+      c.group.add(lc);
     }
     // aerials with red lights, and the billboards (always bright: they are lit signs)
     const mastG = new THREE.BufferGeometry();
@@ -1445,9 +1462,10 @@ function* buildIslandExtras(c) {
       _cityMat.emissiveIntensity = 1.5 * lampsOn;
       lm.opacity = 0.95 * lampsOn;
       wm.opacity = 0.95 * smooth(0.05, 0.5, lampsOn);
-      if (poolMat) { poolMat.opacity = 0.55 * lampsOn; headMat.color.setRGB(0.35 + 0.65 * lampsOn, 0.33 + 0.55 * lampsOn, 0.3 + 0.2 * lampsOn); }
+      if (lampConeMat) lampConeMat.uniforms.uOpacity.value = 0.5 * lampsOn;
+      if (poolMat) { poolMat.opacity = 0.4 * lampsOn; headMat.color.setRGB(0.35 + 0.65 * lampsOn, 0.33 + 0.55 * lampsOn, 0.3 + 0.2 * lampsOn); }
       mastM.opacity = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * 3));
-      _coneMat.opacity = 0.17 * lampsOn;
+      _coneMat.uniforms.uOpacity.value = 0.55 * lampsOn;
       for (let i = 0; i < lights.length; i++) { // traffic lights: green, yellow, red in turn, the cross street the other way about
         const L = lights[i], ph = (t + L[4] + (L[3] ? 6 : 0)) % 12;
         if (ph < 5) tlCol.set([0.1, 1, 0.3], i * 3); else if (ph < 6) tlCol.set([1, 0.8, 0.1], i * 3); else tlCol.set([1, 0.12, 0.08], i * 3);
@@ -1548,17 +1566,57 @@ function islandRoad(a) {
 }
 const CAR_COLORS = [0xc8342b, 0xf2f2ee, 0x2f5d8c, 0x3c3c3c, 0xe0b23a, 0x3f7a4a, 0x8a8f96];
 const _carGeo = {};
-// two soft cones of light ahead of a car's headlamps (one shared material, brightened at night)
-let _coneMat = null, _coneGeo = null;
+// A city sits in a patch of its island, off-centre and ragged-edged, not over the whole thing; the rest stays green.
+function cityZone(a) {
+  if (!a._cz) { const th = a.p1, off = a.r * 0.2; a._cz = { x: a.x + Math.cos(th) * off, z: a.z + Math.sin(th) * off, R: Math.min(a.r * 0.62, 300) }; }
+  return a._cz;
+}
+function inCityZone(a, x, z, m = 0) {
+  const zn = cityZone(a), dx = x - zn.x, dz = z - zn.z, th = Math.atan2(dz, dx);
+  return Math.hypot(dx, dz) < zn.R * (0.78 + 0.44 * vnz(Math.cos(th) * 2 + 9, Math.sin(th) * 2 + 9, 71)) + m;
+}
+// A cone of light as a shader (like the lighthouse's beam): a unit cone, apex at the origin, opening along +z to radius 1 at z = 1, scaled per use.
+// It is brightest through the middle of the beam and fades toward its edges and with distance from the lamp.
+function lightConeMaterial(color) {
+  return new THREE.ShaderMaterial({
+    uniforms: { uOpacity: { value: 0 }, uColor: { value: new THREE.Color(color) } },
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false,
+    vertexShader: `
+      varying vec3 vN; varying vec3 vV; varying float vLen;
+      void main() {
+        mat4 M = modelMatrix;
+        #ifdef USE_INSTANCING
+          M = modelMatrix * instanceMatrix;
+        #endif
+        vec3 sc = vec3(length(M[0].xyz), length(M[1].xyz), length(M[2].xyz));
+        vec3 nl = vec3(position.x / sc.x, position.y / sc.y, -position.z / sc.z);
+        mat3 Rm = mat3(M[0].xyz / sc.x, M[1].xyz / sc.y, M[2].xyz / sc.z);
+        vN = normalize(mat3(viewMatrix) * (Rm * nl));
+        vec4 mv = viewMatrix * M * vec4(position, 1.0);
+        vV = normalize(-mv.xyz);
+        vLen = position.z;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      uniform float uOpacity; uniform vec3 uColor;
+      varying vec3 vN; varying vec3 vV; varying float vLen;
+      void main() {
+        float rim = abs(dot(normalize(vN), normalize(vV)));
+        float a = uOpacity * pow(rim, 1.4) * pow(clamp(1.0 - vLen, 0.0, 1.0), 1.25) * smoothstep(0.0, 0.07, vLen);
+        gl_FragColor = vec4(uColor * a, a);
+      }`,
+  });
+}
+const unitCone = () => (unitCone.g ||= new THREE.CylinderGeometry(1, 0.0, 1, 18, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5)); // (apex at 0, opening toward +z)
+// two cones of light ahead of a car's headlamps (one shared material, brightened at night)
+let _coneMat = null;
 function addHeadCones(mesh) {
-  if (!_coneMat) {
-    _coneMat = new THREE.MeshBasicMaterial({ color: 0xfff0c8, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
-    _coneGeo = new THREE.CylinderGeometry(2.3, 0.06, 15, 12, 1, true).rotateX(Math.PI / 2).translate(0, 0, 7.5);
-  }
+  _coneMat ||= lightConeMaterial(0xfff0cc);
   for (const x of [-0.6, 0.6]) {
-    const m = new THREE.Mesh(_coneGeo, _coneMat);
+    const m = new THREE.Mesh(unitCone(), _coneMat);
     m.position.set(x, 0.7, 2.2);
-    m.rotation.x = 0.07;
+    m.rotation.x = 0.06;
+    m.scale.set(2.4, 1.5, 17);
     m.frustumCulled = false;
     mesh.add(m);
   }
@@ -1690,7 +1748,7 @@ function* extrasRoad(c) {
     cars.push({ mesh, run, s: R() * (run.pts.length - 2), dir: R() < 0.5 ? 1 : -1, speed: 2.2 + R() * 1.6, lights }); // (speed in road points per second: 5 m apart)
   }
   c.updaters.push((t, dt, lampsOn) => {
-    if (_coneMat) _coneMat.opacity = 0.17 * lampsOn;
+    if (_coneMat) _coneMat.uniforms.uOpacity.value = 0.55 * lampsOn;
     for (const car of cars) {
       const pts = car.run.pts, n = pts.length;
       car.s += car.dir * car.speed * dt;
