@@ -1,7 +1,20 @@
-Lantern Tide - version 4.2 (5 Oct 2026)
+Lantern Tide - version 5.0 (6 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 5.0: THE WORLD IS A PLANET
+- The whole world now curves like a small planet: the sea, the land, trees, boats, everything drops away below the horizon (very gently at
+  sea level, so islands still rise over it as you approach). Climb, and the curvature grows until you can see the planet is round.
+- Fly up to space: the sky fades slowly from blue to black, the clouds lie low (you climb through them and they are beneath you), a thin
+  atmosphere hugs the ground, and above about 10 km it is black with stars only. From space you look down at your planet: islands with
+  their shallows, clouds with shadows, a day side and a dark side with a soft terminator, the sun's glint on the sea, city, airport and
+  lava lights on the night side, an atmosphere glowing blue at the limb and orange at sunset, the real sun and the moon (with phases)
+  and a few neighbouring planets. The planet turns beneath you as you travel.
+- Flight is much faster: Slow 25, Normal 90, Fast 350, Rocket 1800, Warp 7000 m/s (choose in the Travel tab). You can fly out over the
+  edge of the world, and the islands stop streaming while you are high up.
+- The islands are no longer evenly spaced: every row of the layout is shifted by its own amount, islands cluster into archipelagos with wide
+  empty seas between, small islets are more common, and the world is a little bigger (7 x 7 cells).
 
 New in 4.2:
 - Roads now rest on top of the landscape (Coastline's road settling): each point sits on the highest ground under the road's width,

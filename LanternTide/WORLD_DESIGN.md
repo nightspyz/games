@@ -33,3 +33,12 @@ The game is one HTML file (`index.html`); this note describes the world systems 
 - Merged geometry per prop group, instancing for trees, bales, poles and reeds, shared materials, canvas textures made once.
 - The base scene (sea twice over, reef) is the heavy part; the world adds little (chunks far away are frustum-culled and coarse).
 - Not yet tested on a headset: please check frame rate on the Quest 3 and tell me where it dips.
+
+## The planet
+- `uCurve` (a global uniform patched into the shared `project_vertex` chunk, the sprite shader and the hand-written sea/land shaders) drops
+  every vertex by distance-from-camera squared times `uCurve`. It is gentle at sea level (a 150 km planet) and rises to the true planet
+  (radius 12 km) as you climb from 150 m to 3 km.
+- The far sea is a sphere traced exactly in a background shell (`planet`), with the same radius as the curve (1 / (2 uCurve)), fogged into the
+  horizon colour. Above a few km it shows a map of the whole world baked in the background from the same height function (`bakeWorldMap`),
+  clouds, glints and night lights. The atmosphere is a ray-marched shell; sun, moon, stars and neighbours are additive background sprites/spheres.
+- Everything in the background is drawn before the world with no depth test, so the real world always stands in front of it.

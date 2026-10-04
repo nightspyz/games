@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v4.2 -->
+<!-- Lantern Tide v5.0 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -46,6 +46,37 @@ canvas{display:block;touch-action:none}
 "use strict";
 const $ = (id) => document.getElementById(id);
 
+// ===== The world is a sphere: everything bends away below the horizon =====
+// A point at horizontal distance d from the camera drops by d*d*uCurve. That is done once, in the shared "project_vertex" chunk (and the
+// sprite shader), so every ordinary material follows it; the few hand-written shaders (the sea, the land) do the same by hand. uCurve is
+// very gentle at sea level and rises toward the planet's true curvature as you climb (see updateSpace).
+THREE.ShaderChunk.common += "\nuniform float uCurve;\n";
+THREE.ShaderChunk.project_vertex = `
+  vec4 mvPosition = vec4(transformed, 1.0);
+  #ifdef USE_INSTANCING
+    mvPosition = instanceMatrix * mvPosition;
+  #endif
+  { vec4 wpc = modelMatrix * mvPosition; vec2 cdc = wpc.xz - cameraPosition.xz; wpc.y -= dot(cdc, cdc) * uCurve; mvPosition = viewMatrix * wpc; }
+  gl_Position = projectionMatrix * mvPosition;
+`;
+THREE.ShaderLib.sprite.vertexShader = THREE.ShaderLib.sprite.vertexShader.replace(
+  "vec4 mvPosition = modelViewMatrix * vec4( 0.0, 0.0, 0.0, 1.0 );",
+  "vec4 mvPosition; { vec4 wps = modelMatrix * vec4( 0.0, 0.0, 0.0, 1.0 ); vec2 cds = wps.xz - cameraPosition.xz; wps.y -= dot(cds, cds) * uCurve; mvPosition = viewMatrix * wps; }"
+);
+// every material gets the shared uCurve uniform, whatever else its own onBeforeCompile does
+Object.defineProperty(THREE.Material.prototype, "onBeforeCompile", {
+  configurable: true,
+  get() {
+    const f = this._obc;
+    return (sh, r) => {
+      if (f) f.call(this, sh, r);
+      if (!sh.uniforms.uCurve) sh.uniforms.uCurve = sharedCurve;
+    };
+  },
+  set(f) { this._obc = f; },
+});
+const sharedCurve = { value: 1 / (2 * 150000) };
+
 // ===== Helpers =====
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -84,12 +115,16 @@ const shared = {
   uStars: { value: 0 },
   uStarGain: { value: 1 },
   uUnder: { value: 0 },
-  uCurve: { value: 1 / (2 * 80000) }, // the earth's curve: things in the wider world drop by distance squared times this
+  uCurve: sharedCurve, // the world's curve: things drop by distance squared times this
+  uSeaFade: { value: 0 }, // the near sea fades out as the planet below takes over
+  uMoonDir: { value: new THREE.Vector3(0, -1, 0) },
+  uSpace: { value: 0 }, // how thin the air is (0 at sea level, 1 in space)
   uIslA: { value: Array.from({ length: 9 }, () => new THREE.Vector4()) },
   uIslB: { value: Array.from({ length: 9 }, () => new THREE.Vector4()) },
   uIslC: { value: Array.from({ length: 9 }, () => new THREE.Vector4()) },
   uIslBase: { value: new THREE.Vector2(1e5, 1e5) },
   uIslRowI: { value: new THREE.Vector3(1e5, 1e5, 1e5) },
+  uIslRowO: { value: new THREE.Vector3() },
   uUnderCol: { value: new THREE.Color(0.03, 0.3, 0.36) },
   uTime: { value: 0 },
   uCloudCover: { value: 0.2 },
@@ -123,6 +158,8 @@ const SKY_GLSL = /* glsl */ `
   uniform float uSunVis;
   uniform float uStars;
   uniform float uStarGain;
+  uniform vec3 uMoonDir;
+  uniform float uSpace;
   uniform float uUnder;
   uniform vec3 uUnderCol;
   uniform float uTime;
@@ -325,6 +362,7 @@ const sky = new THREE.Mesh(
       void main() {
         vec3 d = normalize(vDir);
         vec3 col = skyColor(vec3(d.x, max(d.y, 0.0), d.z));
+        col *= 1.0 - uSpace * smoothstep(0.0, -0.25, d.y); // high up, below the horizon is the dark of space, not haze
 
         // Twinkling stars
         vec3 cell = floor(d * 400.0);
@@ -347,7 +385,7 @@ const sky = new THREE.Mesh(
         }
 
         // Moon, opposite the sun
-        float md = dot(d, -uSunDir);
+        float md = dot(d, uMoonDir);
         col += vec3(0.85, 0.9, 1.0) * smoothstep(0.99955, 0.9997, md) * uStars;
         col += vec3(0.5, 0.6, 0.8) * pow(max(md, 0.0), 60.0) * 0.15 * uStars;
 
@@ -594,7 +632,7 @@ const BREAK_T = 6.5; // its period, seconds
 // formula, the same in JS (for walking and for building the land) and in GLSL (for the water: depth, breakers, foam). The cells
 // round you are handed to the shaders as uniforms; each island lies wholly inside its own cell.
 const CELL = 1300, GRID_OX = -650, GRID_OZ = -840; // (the home island sits in the middle of cell 0,0)
-const rowOff = (j) => (((j % 2) + 2) % 2) * CELL * 0.5; // alternate rows are shifted half a cell, like bricks, so the islands do not line up in columns
+const rowOff = (j) => (j === 0 ? 0 : hash3(7, j, 70) * CELL); // every row of cells is shifted by its own amount, so the islands do not line up in columns
 const ISLE_NAMES = ["", "Tropical island", "Volcano", "Temple island", "Swamp", "City island", "Airport island"];
 const WORLD_SEED = (() => {
   let q = null;
@@ -604,8 +642,8 @@ const WORLD_SEED = (() => {
   for (const ch of q) h = Math.imul(h ^ ch.charCodeAt(0), 2654435761);
   return h | 0;
 })();
-const WORLD_N = 2; // the world is 5 x 5 cells (about 6.5 km across); past that is open sea
-const WORLD_B = { x0: GRID_OX - WORLD_N * CELL - CELL / 2, x1: GRID_OX + (WORLD_N + 1) * CELL + CELL / 2, z0: GRID_OZ - WORLD_N * CELL, z1: GRID_OZ + (WORLD_N + 1) * CELL };
+const WORLD_N = 3; // the world is 7 x 7 cells (about 9 km across); past that is open sea
+const WORLD_B = { x0: GRID_OX - WORLD_N * CELL - CELL, x1: GRID_OX + (WORLD_N + 1) * CELL + CELL, z0: GRID_OZ - WORLD_N * CELL, z1: GRID_OZ + (WORLD_N + 1) * CELL };
 function hash3(i, j, k) {
   let h = Math.imul(i | 0, 374761393) ^ Math.imul(j | 0, 668265263) ^ Math.imul((k + 7) | 0, 2147483629) ^ Math.imul(WORLD_SEED, 1597334677);
   h = Math.imul(h ^ (h >>> 13), 1274126177);
@@ -624,10 +662,10 @@ function islandCell(i, j) {
   if (!(i === 0 && j === 0) && Math.abs(i) <= WORLD_N && Math.abs(j) <= WORLD_N) {
     // a size class first (islets to big islands), then what kind of island that size can be; plenty of cells are only open sea
     const sk = hash3(i, j, 10), rk = hash3(i, j, 2);
-    let r = sk < 0.26 ? lerp(45, 100, rk) : sk < 0.52 ? lerp(100, 170, rk) : sk < 0.8 ? lerp(170, 250, rk) : lerp(250, 330, rk);
+    let r = sk < 0.34 ? lerp(45, 100, rk) : sk < 0.62 ? lerp(100, 170, rk) : sk < 0.86 ? lerp(170, 250, rk) : lerp(250, 330, rk);
     let type = ISLE_FORCED[a.id];
     if (type) r = Math.max(r, ISLE_MINR[type] + 20 * rk);
-    else if (hash3(i, j, 0) > 0.64) type = 0;
+    else if (hash3(i, j, 0) > 0.12 + 0.8 * smooth(0.34, 0.6, vnz((GRID_OX + (i + 0.5) * CELL + rowOff(j)) / 2700, (GRID_OZ + (j + 0.5) * CELL) / 2700, 71))) type = 0; // (dense clusters, wide empty seas)
     else {
       const list = [1, 1, 1, 4];
       if (r >= 140) list.push(3, 3);
@@ -738,6 +776,7 @@ const SHORE_GLSL = /* glsl */ `
   uniform vec4 uIslC[9]; // cliff height and phase
   uniform vec2 uIslBase; // y = the first of the three rows of cells
   uniform vec3 uIslRowI; // the first cell of each of those rows
+  uniform vec3 uIslRowO; // and how far each of those rows is shifted
   const float CELL_S = ${CELL.toFixed(1)};
   const vec2 GRID_O = vec2(${GRID_OX.toFixed(1)}, ${GRID_OZ.toFixed(1)});
   vec4 islLookup(vec2 p, out vec4 B, out vec4 C) {
@@ -746,7 +785,7 @@ const SHORE_GLSL = /* glsl */ `
     float jj = floor((p.y - GRID_O.y) / CELL_S);
     float rj = jj - uIslBase.y;
     if (rj < 0.0 || rj > 2.0) return vec4(0.0);
-    float off = mod(jj, 2.0) * CELL_S * 0.5;
+    float off = rj < 0.5 ? uIslRowO.x : (rj < 1.5 ? uIslRowO.y : uIslRowO.z);
     float ii = floor((p.x - GRID_O.x - off) / CELL_S);
     float rowBase = rj < 0.5 ? uIslRowI.x : (rj < 1.5 ? uIslRowI.y : uIslRowI.z);
     float ri = ii - rowBase;
@@ -1067,6 +1106,7 @@ const WATER_VERTEX = /* glsl */ `
   ${SHORE_GLSL}
   uniform float uTime;
   uniform float uWaveScale;
+  uniform float uCurve;
   uniform vec4 uWaves[4];
   varying vec3 vWorld;
   varying vec3 vNormal;
@@ -1141,7 +1181,8 @@ const WATER_VERTEX = /* glsl */ `
     vNormal = normalize(cross(binormal, tangent));
     vWorld = p;
     vBed = bed;
-    gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+    vec2 cdw = p.xz - cameraPosition.xz;
+    gl_Position = projectionMatrix * viewMatrix * vec4(p.x, p.y - dot(cdw, cdw) * uCurve, p.z, 1.0);
   }
 `;
 
@@ -1164,6 +1205,7 @@ const water = new THREE.Mesh(
       uniform float uFoam;
       uniform float uFogNear;
       uniform float uFogFar;
+      uniform float uSeaFade;
       uniform vec3 uLampPos[${MAX_LAMPS}];
       uniform vec3 uLampColor[${MAX_LAMPS}];
       varying vec3 vWorld;
@@ -1305,7 +1347,7 @@ const water = new THREE.Mesh(
         // Sun glitter: a sharp core plus a broad sheen, and the moon's path at night
         float sd = max(dot(r, uSunDir), 0.0);
         col += uSunColor * (pow(sd, 900.0) * 8.0 + pow(sd, 90.0) * 0.35) * uSunVis * cShadow;
-        col += vec3(0.7, 0.8, 1.0) * pow(max(dot(r, -uSunDir), 0.0), 300.0) * 1.2 * uStars;
+        col += vec3(0.7, 0.8, 1.0) * pow(max(dot(r, uMoonDir), 0.0), 300.0) * 1.2 * uStars;
 
         // The night sky mirrored in the sea: stars glitter on the moving waves, the aurora lays
         // long wavering streaks of green toward you.
@@ -1347,7 +1389,7 @@ const water = new THREE.Mesh(
         vec3 fogCol = skyColor(normalize(vec3(-v.x + 1e-4, 0.0, -v.z)));
         col = mix(col, fogCol, smoothstep(uFogNear, uFogFar, dist));
 
-        float alpha = smoothstep(0.0, 0.07, depthW);
+        float alpha = smoothstep(0.0, 0.07, depthW) * (1.0 - uSeaFade);
         gl_FragColor = vec4(col, alpha);
       }
     `,
@@ -1377,6 +1419,7 @@ const foamLayer = new THREE.Mesh(
       uniform float uWaveScale;
       uniform float uFoam;
       uniform float uLight;
+      uniform float uSeaFade;
       uniform vec3 uSunDir;
       uniform float uSunVis;
       uniform vec3 uCamPos;
@@ -1392,7 +1435,7 @@ const foamLayer = new THREE.Mesh(
         if (foam < 0.004) discard;
         float diff = max(dot(normalize(vNormal), uSunDir), 0.0) * uSunVis;
         vec3 col = vec3(0.97, 0.98, 1.0) * uLight * (0.82 + 0.18 * diff);
-        gl_FragColor = vec4(col, foam * (1.0 - smoothstep(uFogNear, uFogFar, dist)));
+        gl_FragColor = vec4(col, foam * (1.0 - smoothstep(uFogNear, uFogFar, dist)) * (1.0 - uSeaFade));
       }
     `,
     transparent: true,
@@ -1413,19 +1456,25 @@ const farOcean = new THREE.Mesh(
     uniforms: shared,
     depthWrite: false,
     vertexShader: /* glsl */ `
+      uniform float uCurve;
       varying vec3 vWorld;
       void main() {
         vec4 wp = modelMatrix * vec4(position, 1.0);
         vWorld = wp.xyz;
-        gl_Position = projectionMatrix * viewMatrix * wp;
+        vec2 cdf = wp.xz - cameraPosition.xz;
+        gl_Position = projectionMatrix * viewMatrix * vec4(wp.x, wp.y - dot(cdf, cdf) * uCurve, wp.z, 1.0);
       }
     `,
+    blending: THREE.CustomBlending, // (kept in the solid pass, like the water, but able to fade out)
+    blendSrc: THREE.SrcAlphaFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
     fragmentShader: /* glsl */ `
       ${SKY_GLSL}
+      uniform float uSeaFade;
       varying vec3 vWorld;
       void main() {
         vec3 v = normalize(cameraPosition - vWorld);
-        gl_FragColor = vec4(skyColor(normalize(vec3(-v.x + 1e-4, 0.0, -v.z))), 1.0);
+        gl_FragColor = vec4(skyColor(normalize(vec3(-v.x + 1e-4, 0.0, -v.z))), 1.0 - uSeaFade);
       }
     `,
   })
@@ -1886,13 +1935,15 @@ const land = new THREE.Mesh(
   new THREE.ShaderMaterial({
     uniforms: landUniforms,
     vertexShader: /* glsl */ `
+      uniform float uCurve;
       varying vec3 vWorld;
       varying vec3 vN;
       void main() {
         vec4 wp = modelMatrix * vec4(position, 1.0);
         vWorld = wp.xyz;
         vN = normal;
-        gl_Position = projectionMatrix * viewMatrix * wp;
+        vec2 cdl = wp.xz - cameraPosition.xz;
+        gl_Position = projectionMatrix * viewMatrix * vec4(wp.x, wp.y - dot(cdl, cdl) * uCurve, wp.z, 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
@@ -2014,7 +2065,7 @@ const land = new THREE.Mesh(
         vec3 skyA = mix(uHorizon, uTop, 0.4);
         vec3 amb = mix(vec3(dot(skyA, vec3(0.333))), skyA, 0.55) * 0.85 + vec3(0.03, 0.04, 0.075);
         amb *= 0.6 + 0.4 * (N.y * 0.5 + 0.5);
-        vec3 moon = vec3(0.3, 0.38, 0.6) * max(dot(N, -uSunDir), 0.0) * uStars * 0.35;
+        vec3 moon = vec3(0.3, 0.38, 0.6) * max(dot(N, uMoonDir), 0.0) * uStars * 0.35;
         vec3 col = albedo * (uSunColor * diff * 0.95 + amb * 0.9 + moon);
         for (int i = 0; i < ${MAX_LAMPS}; i++) {
           vec3 L = uLampPos[i] - vWorld;
@@ -2627,6 +2678,12 @@ function sunDirection(hours, out) {
 const lastEnv = { light: 1, lightLevel: 1, lampsOn: 0 };
 function applyEnvironment(hours) {
   const sunDir = sunDirection(hours, shared.uSunDir.value);
+  {
+    // the moon: opposite the sun, swinging a little to one side and back over time, so it has phases from space
+    const mt = 0.55 * Math.sin(shared.uTime.value * 0.004);
+    const px = sunDir.y, py = -sunDir.x, pl = Math.hypot(px, py) || 1;
+    shared.uMoonDir.value.set(-sunDir.x + (px / pl) * mt, -sunDir.y + (py / pl) * mt, -sunDir.z).normalize();
+  }
   const e = sunDir.y;
   const day = smooth(0.0, 0.35, e);
   const night = 1 - smooth(-0.28, -0.02, e);
@@ -2650,15 +2707,23 @@ function applyEnvironment(hours) {
     horizon.lerp(PALETTE.flash, flash * 0.5);
   }
 
+  {
+    // high up the sky thins to black
+    const sd = spaceState.dark;
+    if (sd > 0) {
+      top.lerp(tmpColor.setRGB(0, 0, 0), sd);
+      horizon.lerp(tmpColor.setRGB(0, 0, 0), Math.pow(sd, 0.8));
+    }
+  }
   shared.uSunColor.value.copy(PALETTE.sunLow).lerp(PALETTE.sunHigh, day);
   shared.uSunset.value = (1 - smooth(0.0, 0.55, e > 0 ? e : -e * 2.2)) * (1 - 0.8 * wx.overcast); // a long, colourful sunset and twilight
   shared.uSunVis.value = smooth(-0.04, 0.02, e) * (1 - 0.9 * wx.overcast) * (1 - 0.75 * wx.fog);
   shared.uFog.value = wx.fog;
-  shared.uStars.value = night * (1 - wx.overcast) * (1 - wx.fog);
+  shared.uStars.value = Math.max(night * (1 - wx.overcast) * (1 - wx.fog), smooth(0.3, 0.85, spaceState.dark));
   shared.uAurora.value = opts.aurora * night * (1 - wx.cover) * (1 - wx.fog) * (0.75 + 0.25 * Math.sin(shared.uTime.value * 0.03));
-  shared.uCloudCover.value = wx.cover;
+  shared.uCloudCover.value = wx.cover * (1 - spaceState.cloudFade);
   // god rays are strongest with a low sun partly hidden by broken cloud
-  shared.uRays.value = smooth(-0.12, 0.06, e) * (1 - 0.55 * smooth(0.3, 0.9, e)) * (0.3 + 0.7 * wx.cover) * (1 - 0.75 * smooth(0.55, 0.95, wx.overcast)) * (1 - wx.fog);
+  shared.uRays.value = (1 - spaceState.cloudFade) * smooth(-0.12, 0.06, e) * (1 - 0.55 * smooth(0.3, 0.9, e)) * (0.3 + 0.7 * wx.cover) * (1 - 0.75 * smooth(0.55, 0.95, wx.overcast)) * (1 - wx.fog);
   shared.uCloudDark.value = smooth(0.35, 0.95, weather.value);
   shared.uCloudOffset.value.copy(weather.cloudOffset);
   shared.uLightLevel.value = Math.max(lightLevel, 0.08) + flash * 0.8;
@@ -2670,10 +2735,10 @@ function applyEnvironment(hours) {
   waterUniforms.uShallow.value.copy(PALETTE.shallowWater).lerp(PALETTE.stormShallow, wx.overcast);
 
   // Rain cuts visibility
-  waterUniforms.uFogNear.value = lerp(FOG_NEAR * (1 - 0.6 * wx.rain), 6, wx.fog);
-  waterUniforms.uFogFar.value = lerp(FOG_FAR - 90 * wx.rain, 130, wx.fog);
+  waterUniforms.uFogNear.value = lerp(FOG_NEAR * (1 - 0.6 * wx.rain), 6, wx.fog) + spaceState.alt * 0.5;
+  waterUniforms.uFogFar.value = lerp(FOG_FAR - 90 * wx.rain, 130, wx.fog) + spaceState.alt * 6;
   scene.fog.near = lerp(lerp(120, 40, wx.rain), 6, wx.fog);
-  scene.fog.far = lerp(lerp(1500, 450, wx.rain), 130, wx.fog);
+  scene.fog.far = lerp(lerp(1500, 450, wx.rain), 130, wx.fog) + spaceState.alt * 8;
   landUniforms.uFogN.value = scene.fog.near;
   landUniforms.uFogF.value = scene.fog.far;
   landUniforms.uWet.value = wx.rain;
@@ -2684,7 +2749,7 @@ function applyEnvironment(hours) {
   sunLight.intensity = 1.1 * smooth(-0.02, 0.2, e) * (1 - 0.75 * wx.overcast);
   sunLight.intensity *= cloudShadowJS(player.x, 0, player.z, sunDir, wx.cover, weather.cloudOffset);
   sunLight.position.copy(sunDir).multiplyScalar(100);
-  moonLight.position.copy(sunDir).multiplyScalar(-100);
+  moonLight.position.copy(shared.uMoonDir.value).multiplyScalar(100);
   moonLight.intensity = 0.3 * night * (1 - wx.overcast);
   hemiLight.color.copy(horizon).lerp(top, 0.5);
   hemiLight.groundColor.copy(waterUniforms.uDeep.value).multiplyScalar(lightLevel);
@@ -2728,6 +2793,7 @@ function updateIslUniforms(x, z) {
   islKey = key;
   shared.uIslBase.value.set(0, j0);
   shared.uIslRowI.value.set(ib[0], ib[1], ib[2]);
+  shared.uIslRowO.value.set(rowOff(j0), rowOff(j0 + 1), rowOff(j0 + 2));
   for (let k = 0; k < 9; k++) {
     const a = islandCell(ib[Math.floor(k / 3)] + (k % 3), j0 + Math.floor(k / 3));
     shared.uIslA.value[k].set(a.x, a.z, a.r, a.type + a.lobF * 0.5);
@@ -3591,6 +3657,7 @@ const kelp = (() => {
           float over = max(wp.y + 0.12, 0.0);
           wp.y -= over;
           wp.xz += normalize(s + vec2(0.3, 0.25)) * over;
+          { vec2 dk = wp.xz - cameraPosition.xz; wp.y -= dot(dk, dk) * uCurve; }
           vec4 mvPosition = viewMatrix * wp;
           gl_Position = projectionMatrix * mvPosition;`
       );
@@ -5025,7 +5092,7 @@ const surfaceAt = (x, z) => {
 };
 function blocked(x, z) {
   if (boatDeckAt(x, z) === "cabin") return true;
-  if (worldBoundsEdge(x, z) < 30) return true; // the edge of the world
+  if (player.y < 150 && worldBoundsEdge(x, z) < 30) return true; // the edge of the world (you can fly over it)
   if (!player.swim && surfaceAt(x, z) - player.y > STEP_UP) return true; // too high to step up: jump
   for (const c of colliders) {
     if (c.hw !== undefined) {
@@ -5094,7 +5161,7 @@ function updatePlayer(dt) {
     const fd = flightDirection();
     if (fd) {
       flying = true;
-      player.fv.lerp(flyTmp.copy(fd).multiplyScalar(player.y > 400 ? 0 : FLIGHT_SPEEDS[opts.flightSpd][1]), 1 - Math.exp(-dt * 3));
+      player.fv.lerp(flyTmp.copy(fd).multiplyScalar(player.y > 400000 ? 0 : FLIGHT_SPEEDS[opts.flightSpd][1]), 1 - Math.exp(-dt * 3));
     }
   }
   if (!flying) {
@@ -5242,7 +5309,7 @@ const lineMat = new THREE.ShaderMaterial(
     impBlend
   )
 );
-const erodeUniforms = { uIslA: shared.uIslA, uIslB: shared.uIslB, uIslC: shared.uIslC, uIslBase: shared.uIslBase, uIslRowI: shared.uIslRowI, uPlayer: { value: new THREE.Vector2() }, uTime: shared.uTime, uRate: { value: 0 } };
+const erodeUniforms = { uIslA: shared.uIslA, uIslB: shared.uIslB, uIslC: shared.uIslC, uIslBase: shared.uIslBase, uIslRowI: shared.uIslRowI, uIslRowO: shared.uIslRowO, uPlayer: { value: new THREE.Vector2() }, uTime: shared.uTime, uRate: { value: 0 } };
 const erodeMat = new THREE.ShaderMaterial({
   uniforms: erodeUniforms,
   depthTest: false,
@@ -6266,7 +6333,7 @@ const MAP_RANGES = [["Off", 0], ["Close", 700], ["Medium", 1800], ["Far", 3600]]
 const STAR_LEVELS = [["Dim", 0.4], ["Normal", 1], ["Bright", 1.8], ["Brilliant", 3]];
 const WAVE_LEVELS = [["Calm", 0.45], ["Normal", 1], ["High", 1.5], ["Huge", 2.1]];
 const SAND_LEVELS = [["Low", 1024], ["Medium", 1536], ["High", 2048]];
-const FLIGHT_SPEEDS = [["Slow", 3.5], ["Normal", 7], ["Fast", 14], ["Rocket", 30]];
+const FLIGHT_SPEEDS = [["Slow", 25], ["Normal", 90], ["Fast", 350], ["Rocket", 1800], ["Warp", 7000]]; // metres per second
 const BOAT_SPEEDS = [["Slow", 0.55], ["Normal", 1], ["Fast", 1.7]];
 const opts = { aurora: 1, stars: 1, waves: 1, sand: 1, flight: 1, map: 2, flightSpd: 1, boatSpd: 1, festival: 0 };
 try {
@@ -6275,7 +6342,7 @@ try {
     if (saved.aurora === 0 || saved.aurora === 1) opts.aurora = saved.aurora;
     if (saved.flight === 0 || saved.flight === 1) opts.flight = saved.flight;
     if (saved.festival === 0 || saved.festival === 1) opts.festival = saved.festival;
-    for (const k of ["stars", "waves", "sand", "map", "flightSpd", "boatSpd"]) if (Number.isInteger(saved[k]) && saved[k] >= 0 && saved[k] <= (k === "sand" || k === "boatSpd" ? 2 : 3)) opts[k] = saved[k];
+    for (const k of ["stars", "waves", "sand", "map", "flightSpd", "boatSpd"]) if (Number.isInteger(saved[k]) && saved[k] >= 0 && saved[k] <= (k === "sand" || k === "boatSpd" ? 2 : k === "flightSpd" ? 4 : 3)) opts[k] = saved[k];
   }
 } catch (e) {}
 // the festival lanterns (in the sky, floating on the sea as lotus, strung along the beach) are off unless you ask for them
@@ -6785,24 +6852,8 @@ function vnz(x, z, s) {
 const forestDensity = (x, z) => vnz(x / 70, z / 70, 21) * 0.65 + vnz(x / 25, z / 25, 22) * 0.35;
 
 // ----- the curve of the earth: things in a chunk sink below the horizon with distance (the sea stays flat) -----
-const CURVE_PROJECT = /* glsl */ `
-  vec4 mvPosition = vec4(transformed, 1.0);
-  #ifdef USE_INSTANCING
-    mvPosition = instanceMatrix * mvPosition;
-  #endif
-  { vec4 wpc = modelMatrix * mvPosition; vec2 cdc = wpc.xz - cameraPosition.xz; wpc.y -= dot(cdc, cdc) * uCurve; mvPosition = viewMatrix * wpc; }
-  gl_Position = projectionMatrix * mvPosition;
-`;
 function curved(mat) {
-  const prev = mat.onBeforeCompile;
-  const prevKey = mat.customProgramCacheKey ? mat.customProgramCacheKey() : "";
-  mat.onBeforeCompile = (sh, r) => {
-    if (prev) prev.call(mat, sh, r);
-    sh.uniforms.uCurve = shared.uCurve;
-    sh.vertexShader = "uniform float uCurve;\n" + sh.vertexShader.replace("#include <project_vertex>", CURVE_PROJECT);
-  };
-  mat.customProgramCacheKey = () => prevKey + "|curved";
-  mat.userData.shared = true;
+  mat.userData.shared = true; // (the curve itself is applied to every material now)
   return mat;
 }
 const chunkLandMat = (() => {
@@ -7107,6 +7158,7 @@ function chunkDist(c) {
   return Math.max(0, Math.hypot(camPos.x - c.a.x, camPos.z - c.a.z) - c.a.r);
 }
 function updateWorld(dt, t, lampsOn) {
+  if (spaceState.alt > 2500) return; // high above, the planet's map stands in for the islands: nothing to stream
   const around = cellsAround(player.x, player.z, 1), keep = new Set();
   for (const a of around) {
     keep.add(a.id);
@@ -8835,6 +8887,355 @@ const seaLife = (() => {
   };
 })();
 
+// ===== The planet: climb high enough and the world is a small round planet with a thin atmosphere, a sun, a moon and the stars =====
+// As you rise, uCurve grows from a gentle bend (sea level) to the planet's true curvature, so the flat world wraps round a sphere.
+// The sea and the far side of the world are painted on a real sphere (a map baked from the same height function the water and land use),
+// lit by the real sun and moon, with clouds, city lights on the night side, and an atmosphere you see edge-on at the limb.
+const PLANET_R = 12000, ATMO_H = 450; // (a thin atmosphere hugging the ground)
+const K_LOW = 1 / (2 * 150000), K_HIGH = 1 / (2 * PLANET_R);
+const spaceState = { alt: 0, dark: 0, fade: 0, vis: 0, cloudFade: 0 };
+
+// ----- the map of the world, baked in the background -----
+const MAP_N = 1024;
+const MAP_X0 = WORLD_B.x0 - 300, MAP_X1 = WORLD_B.x1 + 300, MAP_Z0 = WORLD_B.z0 - 300, MAP_Z1 = WORLD_B.z1 + 300;
+const mapData = new Uint8Array(MAP_N * MAP_N * 4), lightData = new Uint8Array(MAP_N * MAP_N * 4);
+const mkTex = (data) => {
+  const t = new THREE.DataTexture(data, MAP_N, MAP_N, THREE.RGBAFormat);
+  t.minFilter = THREE.LinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  t.generateMipmaps = false;
+  t.needsUpdate = true;
+  return t;
+};
+const worldMapTex = mkTex(mapData), worldLightTex = mkTex(lightData);
+const mapBake = { ready: 0, gen: null };
+function* bakeWorldMap() {
+  const H = new Float32Array(MAP_N * MAP_N);
+  const dx = (MAP_X1 - MAP_X0) / MAP_N, dz = (MAP_Z1 - MAP_Z0) / MAP_N;
+  for (let j = 0; j < MAP_N; j++) {
+    for (let i = 0; i < MAP_N; i++) H[j * MAP_N + i] = bedHeightJS(MAP_X0 + (i + 0.5) * dx, MAP_Z0 + (j + 0.5) * dz);
+    if (j % 6 === 5) yield;
+  }
+  for (let j = 0; j < MAP_N; j++) {
+    for (let i = 0; i < MAP_N; i++) {
+      const k = j * MAP_N + i, x = MAP_X0 + (i + 0.5) * dx, z = MAP_Z0 + (j + 0.5) * dz, h = H[k];
+      let r = 0, g = 0, b = 0, a = 0, lr = 0, lg = 0;
+      if (h < 0) {
+        a = Math.round(255 * 0.9 * (1 - smooth(1, 6.5, -h)));
+      } else {
+        a = 255;
+        const isl = isleCellOf(x, z), ty = isl.type;
+        const hl = H[j * MAP_N + Math.max(0, i - 1)], hr = H[j * MAP_N + Math.min(MAP_N - 1, i + 1)], hu = H[Math.max(0, j - 1) * MAP_N + i], hd = H[Math.min(MAP_N - 1, j + 1) * MAP_N + i];
+        const slope = Math.hypot(hr - hl, hd - hu) / (2 * dx);
+        const n = vnz(x / 40, z / 40, 51);
+        if (h < 1.3) [r, g, b] = [0.86, 0.78, 0.58];
+        else if (ty === 2) {
+          const q = Math.hypot(x - isl.x, z - isl.z) / isleCoastR(isl, Math.atan2(z - isl.z, x - isl.x));
+          if (q < 0.085) (r = 1), (g = 0.36), (b = 0.08), (lg = 255);
+          else if (h > isl.h * 0.55) [r, g, b] = [0.3, 0.27, 0.25];
+          else if (h > 5) [r, g, b] = [0.13 + 0.05 * n, 0.12 + 0.05 * n, 0.11];
+          else [r, g, b] = [0.2, 0.36, 0.14];
+        } else if (ty === 3) [r, g, b] = h > 2.5 ? [0.66 - 0.1 * n, 0.58 - 0.1 * n, 0.4] : [0.3, 0.45, 0.18];
+        else if (ty === 4) [r, g, b] = [0.2 + 0.05 * n, 0.27 + 0.05 * n, 0.12];
+        else if (ty === 5) {
+          const gx = (((x - isl.x) % 30) + 30) % 30, gz = (((z - isl.z) % 30) + 30) % 30;
+          [r, g, b] = gx < 7 || gz < 7 ? [0.32, 0.32, 0.34] : [0.55 + 0.1 * n, 0.55 + 0.1 * n, 0.57];
+          if (h > 1.5 && hash3(Math.floor(x / 12), Math.floor(z / 12), 60) < 0.5) lr = 255;
+        } else if (ty === 6) {
+          [r, g, b] = [0.62, 0.64, 0.66];
+          const ux = Math.cos(isl.p1), uz = Math.sin(isl.p1), s = (x - isl.x) * ux + (z - isl.z) * uz, l = -(x - isl.x) * uz + (z - isl.z) * ux;
+          if (Math.abs(l) < 18 && Math.abs(s) < Math.min(0.55 * isl.r, 190)) { [r, g, b] = [0.2, 0.2, 0.22]; if (Math.abs(Math.abs(l) - 19) < 5 && ((s + 400) % 36) < 12) lr = 255; }
+        } else if (slope > 0.4) [r, g, b] = [0.46, 0.4, 0.35];
+        else {
+          [r, g, b] = [0.15 + 0.1 * n, 0.34 + 0.1 * n, 0.12];
+          if (isl.farm && farmMask(isl, x, z) > 0.4) { const k2 = hash3(Math.floor(x / 50), Math.floor(z / 60), 61); [r, g, b] = k2 < 0.33 ? [0.78, 0.66, 0.3] : k2 < 0.66 ? [0.4, 0.62, 0.2] : [0.34, 0.24, 0.16]; }
+        }
+        const shade = 0.9 + clamp((hl - hr + hu - hd) * 0.05, -0.25, 0.25);
+        r *= shade; g *= shade; b *= shade;
+      }
+      mapData[k * 4] = clamp(r * 255, 0, 255);
+      mapData[k * 4 + 1] = clamp(g * 255, 0, 255);
+      mapData[k * 4 + 2] = clamp(b * 255, 0, 255);
+      mapData[k * 4 + 3] = a;
+      lightData[k * 4] = lr;
+      lightData[k * 4 + 1] = lg;
+    }
+    if (j % 6 === 5) yield;
+  }
+  worldMapTex.needsUpdate = true;
+  worldLightTex.needsUpdate = true;
+  mapBake.ready = 1;
+}
+mapBake.gen = bakeWorldMap();
+
+// ----- the planet, its atmosphere, the sun, the moon, the stars and a few neighbours -----
+// All of these are drawn as a background (before the world, with no depth test), so the real world always stands in front of them.
+// The planet is a sphere traced exactly in the shader, with the same curvature as the world's droop (radius 1 / (2 uCurve)), so at sea
+// level it is just the far sea, fading into the haze, and as you climb it shrinks to the little planet it really is.
+const spaceGroup = new THREE.Group();
+spaceGroup.visible = false;
+scene.add(spaceGroup);
+const planetU = {
+  uC: { value: new THREE.Vector3() }, uRs: { value: 150000 }, uSun: shared.uSunDir, uMoonP: { value: new THREE.Vector3() },
+  uSub: { value: new THREE.Vector2() }, uMapB: { value: new THREE.Vector4(MAP_X0, MAP_Z0, 1 / (MAP_X1 - MAP_X0), 1 / (MAP_Z1 - MAP_Z0)) },
+  uMap: { value: worldMapTex }, uLights: { value: worldLightTex }, uTime: shared.uTime, uCover: shared.uCloudCover, uCloudOff: shared.uCloudOffset,
+  uMapReady: { value: 0 }, uHorizon: shared.uHorizon, uFogNear: waterUniforms.uFogNear, uFogFar: waterUniforms.uFogFar, uSpaceCover: { value: 0.5 },
+};
+const bgShellVert = "varying vec3 vW;\nvoid main() { vec4 wp = modelMatrix * vec4(position, 1.0); vW = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }";
+const planet = new THREE.Mesh(
+  new THREE.SphereGeometry(9000, 40, 20),
+  new THREE.ShaderMaterial({
+    uniforms: planetU,
+    side: THREE.BackSide,
+    depthTest: false,
+    depthWrite: false,
+    vertexShader: bgShellVert,
+    fragmentShader: /* glsl */ `
+      ${NOISE_GLSL}
+      uniform vec3 uC; uniform float uRs; uniform vec3 uSun; uniform vec3 uMoonP; uniform vec2 uSub; uniform vec4 uMapB;
+      uniform sampler2D uMap; uniform sampler2D uLights; uniform float uTime; uniform float uCover; uniform vec2 uCloudOff; uniform float uMapReady;
+      uniform vec3 uHorizon; uniform float uFogNear; uniform float uFogFar; uniform float uSpaceCover;
+      varying vec3 vW;
+      float cloudAt(vec2 pc) {
+        vec2 cp = pc * 0.00028 + uCloudOff * 0.000006 + vec2(uTime * 0.0001, 0.0);
+        float f = fbm(cp * 3.0) * 0.85 + 0.2 * vnoise(cp * 15.0);
+        return smoothstep(0.78 - 0.5 * uSpaceCover, 1.02 - 0.3 * uSpaceCover, f);
+      }
+      void main() {
+        vec3 ro = cameraPosition - uC;
+        vec3 rd = normalize(vW - cameraPosition);
+        float b = dot(ro, rd);
+        float disc = b * b - (dot(ro, ro) - uRs * uRs);
+        if (disc < 0.0) discard;
+        float t = -b - sqrt(disc);
+        if (t < 0.0) discard;
+        vec3 P = ro + rd * t;
+        vec3 n = P / uRs;
+        float dist = t;
+        float fog = smoothstep(uFogNear, uFogFar, dist);
+        if (fog > 0.999) { gl_FragColor = vec4(uHorizon, 1.0); return; }
+        vec3 V = -rd;
+        float th = atan(length(n.xz), n.y);
+        float ph = atan(n.z, n.x);
+        vec2 pc = uSub + uRs * th * vec2(cos(ph), sin(ph));
+        vec2 uv = (pc - uMapB.xy) * uMapB.zw;
+        float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0) * uMapReady;
+        vec4 m = texture2D(uMap, clamp(uv, 0.0, 1.0));
+        float land = step(0.99, m.a) * inside;
+        vec3 deep = vec3(0.012, 0.08, 0.2);
+        vec3 ocean = mix(deep, vec3(0.1, 0.58, 0.6), pow(clamp(m.a / 0.9, 0.0, 1.0), 1.6) * inside);
+        vec3 albedo = mix(ocean, m.rgb, land);
+        float mu = dot(n, uSun);
+        float day = smoothstep(-0.08, 0.18, mu);
+        float diff = max(mu, 0.0);
+        float cl = cloudAt(pc) * (0.35 + 0.65 * day) * smoothstep(300.0, 1500.0, cameraPosition.y);
+        float csh = cloudAt(pc - vec2(uSun.x, uSun.z) * 500.0);
+        vec3 sunC = vec3(1.0, 0.95, 0.86);
+        vec3 lit = albedo * (sunC * diff * (1.0 - 0.45 * csh) + vec3(0.03, 0.05, 0.09));
+        vec3 R = reflect(rd, n);
+        lit += sunC * pow(max(dot(R, uSun), 0.0), 220.0) * (1.0 - land) * 2.2 * (1.0 - cl);
+        float F = pow(1.0 - max(dot(n, V), 0.0), 5.0);
+        lit = mix(lit, uHorizon * (0.5 + 0.5 * day), F * 0.55 * (1.0 - land));
+        vec3 cc = mix(vec3(0.12, 0.13, 0.17), vec3(1.0), clamp(diff * 0.95 + 0.12, 0.0, 1.0)) * (0.12 + 0.88 * day);
+        lit = mix(lit, cc, cl * 0.92);
+        vec4 Lt = texture2D(uLights, clamp(uv, 0.0, 1.0));
+        float nightK = 1.0 - day;
+        lit += (vec3(1.0, 0.76, 0.42) * Lt.r * 1.7 + vec3(1.0, 0.33, 0.07) * Lt.g * 1.5) * inside * (nightK * 0.95 + 0.05) * (1.0 - cl * 0.85);
+        lit += vec3(0.05, 0.07, 0.12) * max(dot(n, normalize(uMoonP - uC)), 0.0) * nightK * 0.5;
+        lit = 1.0 - exp(-lit * 1.35);
+        gl_FragColor = vec4(mix(lit, uHorizon, fog), 1.0);
+      }
+    `,
+  })
+);
+planet.frustumCulled = false;
+planet.renderOrder = -0.9;
+scene.add(planet);
+const atmoU = { uC: planetU.uC, uSun: shared.uSunDir, uRp: { value: PLANET_R }, uRa: { value: PLANET_R + ATMO_H }, uOpacity: { value: 1 } };
+const atmosphere = new THREE.Mesh(
+  new THREE.SphereGeometry(1, 128, 80),
+  new THREE.ShaderMaterial({
+    uniforms: atmoU,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    vertexShader: bgShellVert,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uC; uniform vec3 uSun; uniform float uRp; uniform float uRa; uniform float uOpacity;
+      varying vec3 vW;
+      void main() {
+        vec3 ro = cameraPosition - uC;
+        vec3 rd = normalize(vW - cameraPosition);
+        float b = dot(ro, rd);
+        float disc = b * b - (dot(ro, ro) - uRa * uRa);
+        if (disc < 0.0) discard;
+        float sq = sqrt(disc);
+        float t0 = max(-b - sq, 0.0), t1 = -b + sq;
+        float d2 = b * b - (dot(ro, ro) - uRp * uRp);
+        if (d2 > 0.0) { float tp = -b - sqrt(d2); if (tp > 0.0) t1 = min(t1, tp); }
+        float len = t1 - t0;
+        vec3 col = vec3(0.0);
+        float od = 0.0;
+        for (int i = 0; i < 10; i++) {
+          float tt = t0 + len * (float(i) + 0.5) / 10.0;
+          vec3 s = ro + rd * tt;
+          float dens = exp(-(length(s) - uRp) / 105.0);
+          float mu = dot(normalize(s), uSun);
+          float lightf = smoothstep(-0.28, 0.3, mu);
+          float twi = smoothstep(-0.3, -0.02, mu) * (1.0 - smoothstep(0.0, 0.4, mu));
+          vec3 sc = mix(vec3(0.2, 0.45, 1.0), vec3(1.0, 0.48, 0.2), twi);
+          float fwd = 0.8 + 0.5 * pow(max(dot(rd, uSun), 0.0), 3.0);
+          col += sc * lightf * dens * (len / 10.0) * fwd;
+          od += dens * len / 10.0;
+        }
+        col *= 0.0016;
+        float a = (1.0 - exp(-od * 0.0026)) * uOpacity;
+        gl_FragColor = vec4(col * uOpacity, a);
+      }
+    `,
+  })
+);
+atmosphere.frustumCulled = false;
+atmosphere.visible = false;
+atmosphere.renderOrder = 5;
+scene.add(atmosphere);
+
+// stars (and a milky-way band), fixed in the sky, glued to the camera; additive and in the solid pass so the world hides them
+const bgBlend = { blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, transparent: false, fog: false };
+const starField = (() => {
+  const R = mulberry(0.4242), N = 6500, pos = new Float32Array(N * 3), col = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) {
+    let x, y, z;
+    if (i < 1700) { // the galactic band: points near a tilted great circle
+      const a = R() * 6.2832, off = (R() + R() + R() - 1.5) * 0.28;
+      x = Math.cos(a); y = Math.sin(off); z = Math.sin(a);
+      const ty = y * 0.82 + z * 0.55, tz = z * 0.82 - y * 0.55;
+      y = ty; z = tz;
+    } else { x = R() * 2 - 1; y = R() * 2 - 1; z = R() * 2 - 1; }
+    const l = Math.hypot(x, y, z) || 1;
+    pos[i * 3] = (x / l) * 500000; pos[i * 3 + 1] = (y / l) * 500000; pos[i * 3 + 2] = (z / l) * 500000;
+    const b = i < 1700 ? 0.25 + 0.4 * R() : 0.35 + 0.65 * Math.pow(R(), 2.2), tint = R();
+    col[i * 3] = b * (0.8 + 0.2 * tint); col[i * 3 + 1] = b * (0.85 + 0.1 * tint); col[i * 3 + 2] = b * (1.0 - 0.15 * tint);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  const p = new THREE.Points(g, new THREE.PointsMaterial({ size: 2.2, sizeAttenuation: false, vertexColors: true, color: 0x000000, ...bgBlend }));
+  p.frustumCulled = false;
+  p.renderOrder = -0.97;
+  spaceGroup.add(p);
+  return p;
+})();
+const sunCore = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture, color: 0x000000, ...bgBlend }));
+const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture, color: 0x000000, ...bgBlend }));
+sunCore.scale.setScalar(26000);
+sunGlow.scale.setScalar(150000);
+sunCore.renderOrder = -0.95;
+sunGlow.renderOrder = -0.951;
+spaceGroup.add(sunCore, sunGlow);
+// lit spheres for the moon and the neighbouring planets
+function bodyMaterial(base, bands) {
+  return new THREE.ShaderMaterial({
+    uniforms: { uSun: shared.uSunDir, uBase: { value: new THREE.Color(base) }, uBands: { value: bands }, uOpacity: { value: 0 } },
+    ...bgBlend,
+    vertexShader: "varying vec3 vN; varying vec3 vO;\nvoid main() { vN = normalize(mat3(modelMatrix) * normal); vO = normal; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+    fragmentShader: /* glsl */ `
+      ${NOISE_GLSL}
+      uniform vec3 uSun; uniform vec3 uBase; uniform float uBands; uniform float uOpacity;
+      varying vec3 vN; varying vec3 vO;
+      void main() {
+        float f = fbm(vO.xy * 3.0 + vO.z * 2.0 + 4.0) * 0.8 + 0.2 * vnoise(vO.xz * 14.0);
+        float crater = smoothstep(0.55, 0.62, vnoise(vO.xy * 9.0 + vO.z * 7.0)) * 0.25;
+        vec3 alb = uBase * (0.65 + 0.5 * f) * (1.0 - crater);
+        if (uBands > 0.5) alb = mix(uBase, uBase * vec3(1.0, 0.8, 0.6), 0.5 + 0.5 * sin(vO.y * uBands + f * 3.0));
+        float d = max(dot(normalize(vN), uSun), 0.0);
+        vec3 c = alb * (d * vec3(1.0, 0.97, 0.9) + 0.025);
+        gl_FragColor = vec4((1.0 - exp(-c * 1.4)) * uOpacity, 1.0);
+      }
+    `,
+  });
+}
+const moonMat = bodyMaterial(0xb0aca4, 0), moonMesh = new THREE.Mesh(new THREE.SphereGeometry(3300, 48, 32), moonMat);
+moonMesh.renderOrder = -0.94;
+spaceGroup.add(moonMesh);
+const neighbours = [
+  { mat: bodyMaterial(0xc2552f, 0), r: 2200, dir: [0.55, 0.45, -0.7], dist: 420000 },
+  { mat: bodyMaterial(0xe0c9a0, 18), r: 9000, dir: [-0.65, 0.3, 0.7], dist: 640000 },
+  { mat: bodyMaterial(0x7fb4d8, 0), r: 3600, dir: [0.2, 0.75, 0.62], dist: 520000 },
+].map((n, i) => {
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(n.r, 40, 28), n.mat);
+  mesh.userData.d = new THREE.Vector3(...n.dir).normalize().multiplyScalar(n.dist);
+  mesh.renderOrder = -0.96;
+  spaceGroup.add(mesh);
+  return mesh;
+});
+{
+  const ring = new THREE.Mesh(new THREE.RingGeometry(12500, 21000, 80), new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide, ...bgBlend }));
+  ring.rotation.x = 1.25;
+  ring.renderOrder = -0.955;
+  neighbours[1].add(ring);
+  neighbours[1].userData.ring = ring;
+}
+let _camFar = 12000;
+function updateSpace(dt) {
+  const alt = Math.max(0, camPos.y);
+  spaceState.alt = alt;
+  spaceState.dark = smooth(250, 10000, alt); // the sky goes from blue to black slowly, and is black in space
+  spaceState.cloudFade = smooth(500, 1700, alt); // the clouds lie low: climb through them and they are beneath you
+  spaceState.fade = 0;
+  spaceState.vis = smooth(4500, 9500, alt);
+  const k = lerp(K_LOW, K_HIGH, smooth(150, 3000, alt));
+  sharedCurve.value = k;
+  shared.uSpace.value = spaceState.dark;
+  const Rs = 1 / (2 * k);
+  // a deeper view distance as you climb
+  const far = alt > 1500 ? 900000 : 12000;
+  if (far !== _camFar) { _camFar = far; camera.far = far; camera.updateProjectionMatrix(); }
+  sky.visible = sky.visible && alt < 14000;
+  // bake the map a little each frame until it is done
+  if (mapBake.gen) {
+    const t0 = performance.now();
+    while (performance.now() - t0 < 3) if (mapBake.gen.next().done) { mapBake.gen = null; break; }
+  }
+  planetU.uMapReady.value = mapBake.ready;
+  // the sphere: centred under you, a little below the sea (so it never touches the water), turning beneath you as you travel
+  const C = planetU.uC.value;
+  C.set(camPos.x, -Rs - 3, camPos.z);
+  planetU.uRs.value = Rs;
+  planetU.uSub.value.set(camPos.x, camPos.z);
+  planetU.uSpaceCover.value = clamp(wx.cover + 0.2, 0, 1);
+  planet.position.copy(camPos);
+  planet.visible = camPos.y > -0.3; // (not from under the sea)
+  const ho = ATMO_H;
+  const Ra = Rs + ho;
+  atmosphere.visible = alt > ho * 1.5 && Rs < 60000;
+  atmosphere.position.copy(C);
+  atmosphere.scale.setScalar(Ra);
+  atmoU.uRp.value = Rs;
+  atmoU.uRa.value = Ra;
+  atmoU.uOpacity.value = smooth(500, 3000, alt);
+  spaceGroup.visible = spaceState.vis > 0.001;
+  if (spaceGroup.visible) {
+    const v = spaceState.vis, S = shared.uSunDir.value, M = shared.uMoonDir.value;
+    starField.position.copy(camPos);
+    starField.material.color.setScalar(v);
+    sunCore.position.copy(camPos).addScaledVector(S, 300000);
+    sunGlow.position.copy(sunCore.position);
+    sunCore.material.color.setRGB(v, 0.96 * v, 0.82 * v);
+    sunGlow.material.color.setRGB(0.55 * v, 0.38 * v, 0.2 * v);
+    moonMesh.position.copy(C).addScaledVector(M, 110000);
+    planetU.uMoonP.value.copy(moonMesh.position);
+    moonMat.uniforms.uOpacity.value = v;
+    for (const n of neighbours) {
+      n.position.copy(camPos).add(n.userData.d);
+      n.material.uniforms.uOpacity.value = v;
+      if (n.userData.ring) n.userData.ring.material.color.setRGB(0.85 * v * 0.6, 0.78 * v * 0.6, 0.62 * v * 0.6);
+    }
+  }
+}
+
 // ===== Minimap (after Coastline's): north-up, centred on you, with the islands, places you have found, and your boat =====
 // On a screen it sits in the corner (M changes the zoom); in VR it is a small panel on top of your left controller.
 const mapCanvas = document.createElement("canvas");
@@ -9053,7 +9454,7 @@ function frame(now) {
     water.renderOrder = u ? -5 : 1; // from below the surface is drawn first, so it hides what is above it
     water.material.depthWrite = u;
     sky.visible = !u;
-    farOcean.visible = !u;
+    farOcean.visible = false; // (the planet's own sea, traced in updateSpace, stands in for it)
     foamLayer.visible = !u;
     if (u) {
       shared.uUnderCol.value.setRGB(0.03, 0.3, 0.36).multiplyScalar(0.12 + 0.88 * clamp(shared.uLightLevel.value, 0, 1));
@@ -9065,6 +9466,7 @@ function frame(now) {
       renderer.setClearColor(shared.uUnderCol.value);
     }
   }
+  updateSpace(dt);
   skyCache.update(camPos);
   updateWorld(dt, t, env.lampsOn);
   seaLife.update(t, dt, env.lampsOn, env.light);
@@ -9146,7 +9548,7 @@ addEventListener("resize", () => {
 
 renderer.setAnimationLoop(frame);
 // handy for testing in a desktop browser
-window.__lt = { islandRoad, worldRoot, renderer, chunks, islandCell, nearestIsland, loadChunkNow, teleportToIsland, islandPOIs, poiSave, boatClearance, bedHeightJS, boatDrive, TELEPORTS, blocked, opts, applyOpts, rockSurfaces, rockSurfaceAt, surfaceAt, setImprintRes, camPos, perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
+window.__lt = { mapBake, spaceState, planet, atmosphere, islandRoad, worldRoot, renderer, chunks, islandCell, nearestIsland, loadChunkNow, teleportToIsland, islandPOIs, poiSave, boatClearance, bedHeightJS, boatDrive, TELEPORTS, blocked, opts, applyOpts, rockSurfaces, rockSurfaceAt, surfaceAt, setImprintRes, camPos, perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
 })();
 </script>
 </body>
