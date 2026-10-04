@@ -83,7 +83,7 @@
 
 <nav class="toc"><div class="wrap">
   <a href="#what">What it is</a><a href="#beach">The beach</a><a href="#sea">Sea and boats</a><a href="#world">The wider world</a>
-  <a href="#places">Places to find</a><a href="#space">Space</a><a href="#controls">Controls</a><a href="#story">How we got here</a><a href="#inside">Under the hood</a>
+  <a href="#places">Places to find</a><a href="#space">Space</a><a href="#navigate">Navigating</a><a href="#homeland">Home land</a><a href="#controls">Controls</a><a href="#story">How we got here</a><a href="#inside">Under the hood</a>
 </div></nav>
 
 <main class="wrap">
@@ -185,6 +185,38 @@
   <figure><img loading="lazy" src="img/lake.jpg" alt="An island with a lake"><figcaption><b>A lake inland</b> on a tropical island.</figcaption></figure>
 </section>
 
+<section id="worlds">
+  <h2>Other worlds</h2>
+  <p class="sub">Since 7.1 you can fly to them, and land.</p>
+  <p>In space you have a true position, and your speed grows with your height above the nearest world, so a crossing takes seconds and an arrival is gentle (the flight-speed setting chooses how fast, up to 600 km/s). The Moon, the red world, the ice world and a ringed gas giant sit at their real places and sizes. Come within 6 km of one you can land on and the ground is built round you, in four tile sizes, from a height function of the place on the world, so a given spot is always the same land. The gas giant has no ground: you can circle it, and that is all. Each world has its own sky, light, fog and gravity, and the home planet hangs in the sky as a sphere.</p>
+  <div class="grid">
+    <figure><img loading="lazy" src="img/world-moon.png" alt="Craters on the Moon from 6 km up"><figcaption><b>The Moon.</b> Craters of every size, from basins to pits, in low gravity.</figcaption></figure>
+    <figure><img loading="lazy" src="img/world-mars.png" alt="Canyons on the red world"><figcaption><b>The red world.</b> Rust desert, mesas and winding canyons under a pink sky.</figcaption></figure>
+    <figure><img loading="lazy" src="img/world-ice.png" alt="The ice world"><figcaption><b>The ice world.</b> Glaciers and crevasses under a pale blue sky.</figcaption></figure>
+  </div>
+</section>
+
+<section id="navigate">
+  <h2>Finding your way in space</h2>
+  <p class="sub">New in 7.3 and 7.4.</p>
+  <p>All four planets circle the sun in one flat plane, the nearer ones faster, and each world is lit from where the sun really is. A panel in front of your eyes shows your speed (and the top speed at that height), the name and distance of every world and the sun, with an arrow at the edge of the view when one is off to the side or behind you. The compass at the lower left shows the orbital plane as a ring: the green arrow points <i>up</i> out of it, the yellow dot is the sun. Roll with the right stick sideways (Q / E on a keyboard) and pitch with it forward and back (F / R). Coming in to a world, the horizon slowly turns level with it, so landing never flips your view.</p>
+  <div class="grid">
+    <figure><img loading="lazy" src="img/space-limb.jpg" alt="The edge of the planet from space with a thin orange atmosphere"><figcaption><b>The limb.</b> Stars behind a thin glowing atmosphere, with the minimap still with you.</figcaption></figure>
+    <figure><img loading="lazy" src="img/hud-1.jpg" alt="Space HUD with world names, a speed readout and the orbital compass"><figcaption><b>The space HUD.</b> Names and distances, speed against the top speed, and the orbital-plane compass.</figcaption></figure>
+    <figure><img loading="lazy" src="img/hud-2.jpg" alt="Space HUD at 172 km/s with Home and the Moon circled"><figcaption><b>On the way.</b> Far worlds are circled so they are easy to find; arrows point to the ones out of view.</figcaption></figure>
+  </div>
+</section>
+
+<section id="homeland">
+  <h2>The land at home</h2>
+  <p class="sub">New in 7.4.</p>
+  <p>The islands have a new relief generator: rolling hills and ridged ranges, bent by a warp so nothing lines up, and the biggest islands are larger. Lakes are shallow bowls about a metre deep, with very subtle ripples.</p>
+  <div class="grid">
+    <figure><img loading="lazy" src="img/home-coast.jpg" alt="A coast with a volcano island in the distance"><figcaption><b>A volcano coast</b> under a grey sky.</figcaption></figure>
+    <figure><img loading="lazy" src="img/home-camp.jpg" alt="A camp below a green volcano"><figcaption><b>A camp</b> below the volcano's slopes.</figcaption></figure>
+  </div>
+</section>
+
 <section id="controls">
   <h2>Controls</h2>
   <p class="sub">VR on Quest, or keyboard and mouse on a screen.</p>
@@ -192,6 +224,7 @@
     <table>
       <tr><th>Move</th><td>Left stick (VR), <kbd>W A S D</kbd></td></tr>
       <tr><th>Turn</th><td>Right stick (smooth), drag the mouse</td></tr>
+      <tr><th>Roll and pitch (in space)</th><td>Right stick sideways / forward-back; Q, E and F, R on a keyboard</td></tr>
       <tr><th>Run</th><td>Click the left stick, hold <kbd>Shift</kbd></td></tr>
       <tr><th>Jump</th><td><kbd>A</kbd> / <kbd>Space</kbd></td></tr>
       <tr><th>Fly</th><td>Jump, then hold a trigger and point (hold <kbd>Space</kbd> on a screen)</td></tr>
@@ -224,6 +257,10 @@
     <div class="step"><span class="ver">5.0</span><div class="ask">“make the entire world a sphere like a planet … fly up to space … the sky fade from blue to black slowly”</div><p>The world became a planet: a curve applied to everything, a ray-traced sphere standing in for the far sea, a baked map of the islands for the view from space, an atmosphere, sun, moon, stars and neighbours. Flight became much faster.</p></div>
     <div class="step"><span class="ver">5.1 – 6.2</span><div class="ask">“fix the exposure, everything looks blown out white … the lanterns and lotus should be off by default … four more places: lighthouse, shipwreck, observatory, ruins … a world without edges”</div><p>A white-out that only some graphics cards showed was found by bisecting with switches: the curved-world patch applied to sprites broke Direct3D 11 on NVIDIA cards, so sprites are no longer bent. The review pass added four authored places, discovery messages, richer terrain and vegetation, a calmer minimap, safer diving, and a sky that goes black sooner.</p></div>
     <div class="step"><span class="ver">7.0</span><div class="ask">“I want this to be a real sphere … the sun shouldn't move, the planet itself should rotate and I'm on it”</div><p>The world became a cube-sphere of six faces joined at the edges, with one planet size at every height, a map of the whole planet baked from the same functions that stream the islands, lakes, a spinning planet under a fixed sun, and a moon with phases.</p></div>
+    <div class="step"><span class="ver">7.1</span><div class="ask">“make me much faster when I'm in space and let me fly to other planets … full scale terrain … the red one like mars, the ring one a gas giant, the moon grey with craters”</div><p>Space got a true position and a speed that grows with height, four other worlds at real sizes, tiled ground for the three you can land on, and a fix for a bug where plain materials were curved round the wrong point far from the origin.</p></div>
+    <div class="step"><span class="ver">7.2</span><div class="ask">“the terrain generator needs real overhaul, I can still hear and see fish in space”</div><p>New terrain for the Moon, the red world and the ice world (craters, mountain ranges, canyons, volcano, crevasses, boulders), and no more fish or underwater feel in space.</p></div>
+    <div class="step"><span class="ver">7.3</span><div class="ask">“I don't see the stars, the transition to the planets is very strange, the speeds are way too fast, all the planets need to be on the same plane orbiting the sun, I can still hear the waves in space”</div><p>The four planets now circle the sun in one flat plane and are lit by it from where they really are. Stars are back, the horizon eases level as you approach a world instead of flipping at landing, flight is much slower near worlds, and waves are silent out there.</p></div>
+    <div class="step"><span class="ver">7.4</span><div class="ask">“the stars draw over the planets … add a speed indicator, names for the planets, a cosmic compass … better terrain on the home planet … waves only near water … the VR menu must show anywhere … bigger landmasses, shallow lakes with subtle waves … let me roll”</div><p>A navigation HUD for space (speed, world names and distances, an orbital-plane compass), roll with the stick, stars behind planets, a menu that works everywhere, new relief and larger islands at home, shallow rippling lakes, and the code split into a js/ folder.</p></div>
   </div>
   <div class="callout">
     <p><b>A note on what was tested.</b> Everything was checked in a headless desktop browser with software rendering, at about one frame per second, using scripted visits and screenshots. Frame rate on a real Quest 3 is untested, and the scene is heavy (the sea is drawn twice, and the base reef and sky were already costly). If it stutters, the Performance tab is the first place to look. The screenshots on this page were captured the same way.</p>

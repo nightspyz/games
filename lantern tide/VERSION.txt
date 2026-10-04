@@ -1,7 +1,48 @@
-Lantern Tide - version 7.0 (4 Oct 2026)
+Lantern Tide - version 7.4 (4 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 7.4: NAVIGATION IN SPACE, ROLL, BIGGER LAND
+- The code is split out of index.html into the js/ folder (nine files, loaded in order). Keep the folder next to index.html when you host it.
+- Space HUD: your speed (with a bar against the top speed at that height), the name and distance of every world and the sun (arrows at the edge of the view when
+  they are off to the side or behind), and a compass of the orbital plane: the ring is the plane all the planets circle in, the green UP arrow points out of it,
+  the yellow dot is the sun. Far worlds are always at least a visible dot.
+- Roll your view in space: right stick sideways (VR) or Q / E (desktop). Pitch: right stick forward = nose down, back = nose up (VR), or F / R (desktop).
+- Stars are drawn behind the planets, and the planets hide each other correctly (nearest in front).
+- The VR menu now opens anywhere (in space the camera's near plane cut it off).
+- Waves are only heard when you are in the water or near it.
+- The home planet's islands use a new relief generator (rolling hills, ridged ranges, warped so nothing lines up) and the biggest islands are larger.
+- Lakes are shallow bowls (about a metre deep) with very subtle waves.
+
+New in 7.3: A REAL SOLAR SYSTEM, STARS, AND A GENTLE ARRIVAL
+- The four planets (home, red, ice, gas giant) now all circle the sun in one flat plane, the nearer ones faster, and the sun is drawn at its true place. Each world
+  is lit from where the sun really is, so phases and night sides are right from every world. Time of day on the home planet follows its place in the orbit.
+- Stars are back in space (they were being bent out of the sky by the planet curve; they now have their own shader). The gas giant's ring is fixed the same way.
+- Coming in to a world, the horizon slowly turns level with it, so there is no sudden flip from looking up to looking down at landing. The view direction never turns.
+- Space speed is much slower and depends on distance from the nearest world (hundreds of m/s a few km up, thousands only in the empty between). You also travel
+  with the nearest world as it circles the sun, so planets no longer slide away from you.
+- The sound of waves no longer leaks into space or onto the other worlds.
+
+New in 7.2: A NEW TERRAIN GENERATOR, AND QUIET SPACE
+- The other worlds' ground is rebuilt: domain-warped continents and basins, ridged mountain ranges, dune fields, canyon systems with steep layered walls and a great
+  shield volcano on the red world; on the Moon dark smooth maria between cratered highlands, craters in seven sizes (bowls, flat-floored with a central peak, rims and
+  ejecta); on the ice world ice-clad ranges, crevasse fields, pressure ridges, wind-carved ridges and frozen lakes. Finer ground near you (4 m), five tile sizes out
+  to 100 km, darker hollows, colour that follows height, slope and layers, and scattered boulders that give the ground its scale.
+- Space speed now depends on how near you are to a world: gentle close in (hundreds of m/s a few km up), fast only in the empty between. The worlds in the sky are
+  placed from where you are after each move (they used to lag a frame behind, which made them swim at speed), and landing drops you to a surface-flight speed.
+- Fixed: the home world's fish, birds and reef (and its underwater look and sound) could appear in space; the sea, wind and rain sounds now fade with the air (silence on the Moon).
+
+New in 7.1: OTHER WORLDS
+- In space you now have a true position and fly MUCH faster: speed grows with your height above the nearest world (the flight-speed setting picks how
+  fast, up to 2,000 km/s on Warp), so crossing to another world takes seconds and arrival is gentle. Above 30 km you are in space; under 20 km of home you come back.
+- Four other worlds sit at true positions and sizes: the Moon (grey, craters of every size, low gravity), the red world (rust deserts, mesas, canyons,
+  mountains, a pink sky and thin air), the ice world (white-blue glaciers, crevasses, mountains) and a ringed gas giant with no ground (you can circle it, not land).
+  Come within 6 km of a landable world and you land, on terrain built round you in four tile sizes from a height function of the place, so the same spot is
+  always the same land. Leave above 25 km. Each has its own sky, light, fog and gravity; the home planet is a sphere in their sky.
+- "Fly to ..." entries in the teleport menu put you 40 km from each world; any home teleport brings you back.
+- Fixed: things drawn with plain or Lambert materials (the menu panel, new meshes) were curved round the wrong point far from the origin, and vanished.
+  The aurora now fades out as you climb. Other worlds are laid at the origin and the home world's things are switched off while you are away.
 
 New in 7.0: A REAL SPHERE
 - The world is now a cube-sphere: six faces of 32 x 32 cells wrapped around a planet about 26.5 km in radius (166 km round), with thousands of
