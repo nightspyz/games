@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v4.1 -->
+<!-- Lantern Tide v4.2 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -649,7 +649,7 @@ function islandCell(i, j) {
       a.p2 = hash3(i, j, 6) * 6.2832;
       a.p3 = hash3(i, j, 7) * 6.2832;
       if ((type === 1 || type === 2 || type === 3) && r >= 110 && hash3(i, j, 14) < 0.42) (a.cliffH = lerp(10, 32, hash3(i, j, 15))), (a.cliffP = hash3(i, j, 16) * 6.2832);
-      a.road = (type === 1 || type === 2 || type === 3) && r >= 150 && hash3(i, j, 12) < 0.68;
+      a.road = (type === 1 || type === 2) && r >= 150 && hash3(i, j, 12) < 0.68;
       a.farm = (type === 1 || type === 3) && r >= 100 && hash3(i, j, 13) < 0.7;
       a.farmTh = hash3(i, j, 17) * 6.2832;
       a.h = type === 2 ? clamp(r * 0.55, 85, 185) * (0.85 + 0.3 * hash3(i, j, 8)) : type === 1 ? Math.min(12, r * 0.06) : ISLE_H[type];
@@ -8081,7 +8081,7 @@ const roadTex = (() => {
   return t;
 })();
 let _roadMat = null;
-const roadMat = () => (_roadMat ||= curved(Object.assign(new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.88, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }), {})));
+const roadMat = () => (_roadMat ||= curved(new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.88, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })));
 function islandRoad(a) {
   if (a.roadRuns !== undefined) return a.roadRuns;
   a.roadRuns = [];
@@ -8095,14 +8095,22 @@ function islandRoad(a) {
     const x = a.x + Math.cos(th) * rr, z = a.z + Math.sin(th) * rr;
     pts.push({ x, z, h: bedHeightJS(x, z), nx: Math.cos(th), nz: Math.sin(th) });
   }
-  // the road holds a level across dips (a river becomes a bridge)
-  const y = pts.map((p) => Math.max(p.h, 1.5));
-  const sm = y.map((_, i) => { let t = 0; for (let k = -4; k <= 4; k++) t += y[(i + k + N) % N]; return t / 9; });
-  pts.forEach((p, i) => (p.y = Math.max(sm[i], pts[i].h * 0.0 + 1.5)));
+  if (a.pois.some((p) => p.def.id === "forestShrine")) return a.roadRuns; // a shrine island is left quiet
+  // Coastline's settleRoad: each point rests on the highest ground under the road's width, then the line is smoothed (but never
+  // dips below the ground), so the road sits on top of the land and bridges dips and rivers; its sides drop down to the ground
+  pts.forEach((p, i) => {
+    const q = pts[(i + 1) % N], o = pts[(i + N - 1) % N];
+    const l = Math.hypot(q.x - o.x, q.z - o.z) || 1;
+    p.sx = -(q.z - o.z) / l; p.sz = (q.x - o.x) / l;
+  });
+  const raw = pts.map((p) => { let hi = 1.4; for (const k of [-1, -0.5, 0, 0.5, 1]) hi = Math.max(hi, bedHeightJS(p.x + p.sx * k * 3.5, p.z + p.sz * k * 3.5)); return hi; });
+  let ys = raw.slice();
+  for (let pass = 0; pass < 4; pass++) ys = ys.map((y, i) => Math.max(raw[i], (ys[(i + N - 2) % N] + ys[(i + N - 1) % N] + y + ys[(i + 1) % N] + ys[(i + 2) % N]) / 5));
+  pts.forEach((p, i) => (p.y = ys[i] + 0.12));
   const ok = pts.map((p, i) => {
     const q = pts[(i + 1) % N];
     const slope = Math.abs(q.y - p.y) / 5;
-    if (slope > 0.2 || p.h > p.y + 3.5) return false; // too steep (a cliff), or cutting into a hill
+    if (slope > 0.2) return false; // too steep (a cliff)
     for (const poi of a.pois) if (Math.hypot(p.x - poi.x, p.z - poi.z) < poi.def.clear + 4) return false;
     return true;
   });
@@ -8147,9 +8155,10 @@ function* extrasRoad(c) {
       const nx = tz, nz = -tx; // to the right of travel
       p.tx = tx; p.tz = tz; p.rx = nx; p.rz = nz;
       if (i) along += Math.hypot(p.x - pq.x, p.z - pq.z);
-      roadPos.push(p.x - nx * W, p.y + 0.08, p.z - nz * W, p.x + nx * W, p.y + 0.08, p.z + nz * W);
-      roadUv.push(0, along / 16, 1, along / 16);
-      if (i) { const k = base + (i - 1) * 2; roadIdx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
+      const v = along / 16;
+      roadPos.push(p.x - nx * W, p.y, p.z - nz * W, p.x + nx * W, p.y, p.z + nz * W, p.x - nx * W, p.y - 3, p.z - nz * W, p.x + nx * W, p.y - 3, p.z + nz * W);
+      roadUv.push(0, v, 1, v, 0, v, 1, v);
+      if (i) { const k = base + (i - 1) * 4, n = k + 4; roadIdx.push(k, n, k + 1, k + 1, n, n + 1, k, k + 2, n, n, k + 2, n + 2, k + 1, n + 1, k + 3, k + 3, n + 1, n + 3); }
     });
     // the sea side is the outward (radial) side; guard rail where the ground drops away, posts every other point
     let railRun = [];
@@ -8708,7 +8717,8 @@ function* extrasWind(c) {
 }
 function* extrasHillTurbines(c) {
   const a = c.a;
-  if (!(a.type === 1 || a.type === 3) || a.r < 150) return;
+  if (a.type !== 1 || a.r < 150) return;
+  if (islandPOIs(a).some((p) => p.def.id === "forestShrine")) return; // a shrine island is left quiet
   const R = mulberry(a.seed * 29 + 3), spots = [];
   for (let k = 0; k < 200; k++) {
     const th = R() * 6.2832, rr = R() * isleCoastR(a, th) * 0.7, x = a.x + Math.cos(th) * rr, z = a.z + Math.sin(th) * rr, h = bedHeightJS(x, z);
@@ -8834,9 +8844,9 @@ const mmx = mapCanvas.getContext("2d");
 const ISLE_COLORS = ["", "#d8c48c", "#6b5046", "#c6b48a", "#74803f", "#9a9a9e", "#b7c3cf"];
 const POI_COLORS = { fishingCabin: "#ffb45a", abandonedCamp: "#8ed06a", forestShrine: "#ff6a5a" };
 const mapTex = new THREE.CanvasTexture(mapCanvas);
-const mapPanel = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.2), new THREE.MeshBasicMaterial({ map: mapTex, transparent: true, toneMapped: false, depthTest: false }));
+const mapPanel = new THREE.Mesh(new THREE.PlaneGeometry(0.17, 0.17), new THREE.MeshBasicMaterial({ map: mapTex, transparent: true, toneMapped: false, depthTest: false }));
 camera.add(mapPanel); // in your view, up in the left corner, wherever you look or move
-mapPanel.position.set(-0.3, 0.2, -0.75);
+mapPanel.position.set(-0.19, 0.11, -0.65);
 mapPanel.renderOrder = 40;
 mapPanel.visible = false;
 function worldBoundsEdge(x, z) {
@@ -9136,7 +9146,7 @@ addEventListener("resize", () => {
 
 renderer.setAnimationLoop(frame);
 // handy for testing in a desktop browser
-window.__lt = { worldRoot, renderer, chunks, islandCell, nearestIsland, loadChunkNow, teleportToIsland, islandPOIs, poiSave, boatClearance, bedHeightJS, boatDrive, TELEPORTS, blocked, opts, applyOpts, rockSurfaces, rockSurfaceAt, surfaceAt, setImprintRes, camPos, perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
+window.__lt = { islandRoad, worldRoot, renderer, chunks, islandCell, nearestIsland, loadChunkNow, teleportToIsland, islandPOIs, poiSave, boatClearance, bedHeightJS, boatDrive, TELEPORTS, blocked, opts, applyOpts, rockSurfaces, rockSurfaceAt, surfaceAt, setImprintRes, camPos, perf, applyPerf, drawMenu, menuCanvas, hudCanvas, menu, props, drone, fireworks, rockets, controllerProp, dronePad, camera, water, lotuses, reefMeshes, kelp, boat, moor, dock, stick, stampSeg, stampFoot, look: (y, p) => ((yaw = y), (pitch = p)), weather, game, player, waveHeight };
 })();
 </script>
 </body>

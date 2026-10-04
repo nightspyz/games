@@ -1,7 +1,13 @@
-Lantern Tide - version 4.1 (5 Oct 2026)
+Lantern Tide - version 4.2 (5 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 4.2:
+- Roads now rest on top of the landscape (Coastline's road settling): each point sits on the highest ground under the road's width,
+  smoothed so it bridges dips and rivers, with its sides dropping down to the ground, so it never disappears into hills.
+- Temple/shrine islands have no roads and no wind turbines (and neither does any island that holds a forest shrine).
+- The minimap sits further in toward the middle of your view.
 
 New in 4.1:
 - Buildings are solid and lit the right way round (the normals/winding were inverted); you cannot walk or fly into them (box
