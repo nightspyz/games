@@ -1141,7 +1141,7 @@ function* buildIslandExtras(c) {
     const [wallMat, roofMat] = cityMats();
     const wall = newBuf(), roof = newBuf(), asph = { pos: [], nor: [], idx: [] };
     const tmp = new THREE.Color(), rc = new THREE.Color();
-    const winP = [], winC = [], lampsP = [], poles = [], runs = [];
+    const winP = [], winC = [], lampsP = [], poles = [], runs = [], parks = [], masts = [], signBuf = newBuf();
     const ang = ((a.p2 - 3.14) / 3.14) * 0.28, cA = Math.cos(ang), sA = Math.sin(ang);
     const W2 = (u, v) => [a.x + u * cA - v * sA, a.z + u * sA + v * cA];
     const Rc = Math.min(a.r * 0.82, 330), E = Rc + 60; // the built-up core (bigger islands are not built over end to end)
@@ -1183,7 +1183,7 @@ function* buildIslandExtras(c) {
         if (u1 - u0 < 10 || v1 - v0 < 10) continue;
         const [mx, mz] = W2((u0 + u1) / 2, (v0 + v1) / 2);
         if (!inCity(mx, mz, 55) || !inCity(...W2(u0, v0), 30) || !inCity(...W2(u1, v1), 30) || !inCity(...W2(u0, v1), 30) || !inCity(...W2(u1, v0), 30)) continue;
-        if (R() < 0.11) continue; // a park or an empty block
+        if (R() < 0.16) { parks.push([u0, u1, v0, v1, Math.hypot(mx - a.x, mz - a.z)]); continue; } // a park
         const rho = Math.hypot(mx - a.x, mz - a.z) / Rc;
         const nu = u1 - u0 > 34 ? (R() < 0.6 ? 2 : 1) : 1, nv = v1 - v0 > 34 ? (R() < 0.6 ? 2 : 1) : 1;
         for (let p = 0; p < nu; p++)
@@ -1229,6 +1229,13 @@ function* buildIslandExtras(c) {
                 addBuilding(roof, roof, cx + (R() - 0.5) * ww * 0.5 * cr, cz - (R() - 0.5) * ww * 0.5 * sr, topY, 1.4 + R() * 2.4, 1.4 + R() * 2.2, 1.0 + R() * 1.8, rotY, rc.setRGB(0.5 + R() * 0.15, 0.5 + R() * 0.12, 0.52));
               topY += 2.5;
             }
+            if (h > 42 && R() < 0.7) { const mh = 10 + R() * 9; addBuilding(roof, roof, cx, cz, topY, 0.5, 0.5, mh, rotY, rc.setRGB(0.55, 0.55, 0.58)); masts.push([cx, topY + mh + 0.4, cz]); topY += mh; } // an aerial with a red light
+            else if (!pitched && h > 12 && R() < 0.22) { // a lit billboard on stilts
+              const sc = tmp.clone().setHSL(R(), 0.8, 0.55), by2 = topY - 1.5;
+              addBuilding(signBuf, signBuf, cx, cz, by2, Math.min(w * 0.7, 14), 0.45, 3.6, rotY, sc);
+              addBuilding(roof, roof, cx, cz, by2 - 1.2, 0.5, 0.5, 1.4, rotY, rc.setRGB(0.4, 0.4, 0.42));
+              topY += 2.2;
+            }
             colliders.push({ x: cx, z: cz, hw: w / 2, hd: d / 2, rot: rotY, top: topY, chunk: a.id });
             for (let k = 0; k < 8; k++) { // lit windows seen from afar
               const wl = Math.floor(R() * 4), uu = R() - 0.5, yy = by + 2 + R() * (ht - 3);
@@ -1242,6 +1249,152 @@ function* buildIslandExtras(c) {
       }
     const wmesh = bufMesh(wall, wallMat), rmesh = bufMesh(roof, roofMat, false);
     c.group.add(wmesh, rmesh);
+    // ----- the life of the streets: crosswalks, lane marks, traffic lights, parks with trees, a fountain, lit lamps, aerials and signs -----
+    const marks = { pos: [], nor: [], col: [], idx: [] };
+    const quad = (cx2, cz2, y, alx, alz, hl, hw2, col) => { // a flat strip on the ground: centre, direction along, half length, half width
+      const rx = alz, rz = -alx, o = marks.pos.length / 3;
+      for (const [sa, sb] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) marks.pos.push(cx2 + alx * hl * sa + rx * hw2 * sb, y, cz2 + alz * hl * sa + rz * hw2 * sb), marks.nor.push(0, 1, 0), marks.col.push(col[0], col[1], col[2]);
+      marks.idx.push(o, o + 1, o + 2, o, o + 2, o + 3);
+    };
+    for (const run of runs) for (let k = 0; k + 1 < run.pts.length; k += 2) { // a dashed yellow line down the middle
+      const p = run.pts[k], q = run.pts[k + 1];
+      quad((p.x + q.x) / 2, (p.z + q.z) / 2, (p.y + q.y) / 2 + 0.05, p.tx, p.tz, 1.2, 0.1, [0.85, 0.7, 0.2]);
+    }
+    const lights = []; // traffic lights: [x, y, z, which street, phase]
+    const sigPoles = [];
+    for (let i = 0; i < U.length; i++) for (let j = 0; j < V.length; j++) {
+      const [x, z] = W2(U[i], V[j]);
+      if (!inCity(x, z, 42)) continue;
+      const y = bedHeightJS(x, z) + 0.17, ph = R() * 12;
+      for (const [axis, wid, off] of [[0, sw(i), sw(j) / 2 + 2.6], [1, sw(j), sw(i) / 2 + 2.6]]) { // zebra crossings on each of the four arms
+        const dx = axis === 0 ? -sA : cA, dz = axis === 0 ? cA : sA; // along the street (axis 0 runs along v)
+        for (const sg of [-1, 1]) for (let k = -Math.floor(wid / 2 / 1.1); k <= Math.floor(wid / 2 / 1.1); k++) {
+          const px = x + dx * off * sg + dz * k * 1.1, pz = z + dz * off * sg - dx * k * 1.1;
+          quad(px, pz, y, dx, dz, 1.3, 0.28, [0.88, 0.88, 0.86]);
+        }
+      }
+      for (let w = 0; w < 2; w++) { // a signal on a pole at a corner for each street
+        const ox = w === 0 ? sw(i) / 2 + 0.8 : -(sw(i) / 2 + 0.8), oz = w === 0 ? sw(j) / 2 + 0.8 : -(sw(j) / 2 + 0.8);
+        const [px, pz] = W2(U[i] + ox, V[j] + oz);
+        const py = bedHeightJS(px, pz);
+        sigPoles.push([px, py - 0.1, pz]);
+        lights.push([px, py + 4.6, pz, w, ph]);
+      }
+    }
+    if (marks.pos.length) {
+      const mg = new THREE.BufferGeometry();
+      mg.setAttribute("position", new THREE.Float32BufferAttribute(marks.pos, 3));
+      mg.setAttribute("normal", new THREE.Float32BufferAttribute(marks.nor, 3));
+      mg.setAttribute("color", new THREE.Float32BufferAttribute(marks.col, 3));
+      mg.setIndex(marks.idx);
+      const mm = new THREE.Mesh(mg, curved(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 })));
+      mm.frustumCulled = false;
+      c.group.add(mm);
+    }
+    yield;
+    if (sigPoles.length) {
+      const sm = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.07, 0.09, 4.7, 5).translate(0, 2.35, 0), curved(new THREE.MeshLambertMaterial({ color: 0x2c2f33 })), sigPoles.length);
+      const m4 = new THREE.Matrix4();
+      sigPoles.forEach((p, i) => sm.setMatrixAt(i, m4.makeTranslation(p[0], p[1], p[2])));
+      sm.frustumCulled = false;
+      c.group.add(sm);
+    }
+    const tlG = new THREE.BufferGeometry(), tlPos = new Float32Array(lights.length * 3), tlCol = new Float32Array(lights.length * 3);
+    lights.forEach((l, i) => tlPos.set([l[0], l[1], l[2]], i * 3));
+    tlG.setAttribute("position", new THREE.BufferAttribute(tlPos, 3));
+    tlG.setAttribute("color", new THREE.BufferAttribute(tlCol, 3));
+    const tlM = curved(new THREE.PointsMaterial({ size: 0.9, sizeAttenuation: true, vertexColors: true, map: dotTexture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    const tlP = new THREE.Points(tlG, tlM);
+    tlP.frustumCulled = false;
+    c.group.add(tlP);
+    // parks: grass laid over the ground, with trees (and a fountain in the one nearest the middle)
+    const trees = [];
+    let fountain = null;
+    parks.sort((p, q) => p[4] - q[4]);
+    parks.forEach((pk, pi) => {
+      const [u0, u1, v0, v1] = pk, NX = 7, NZ = 7, gp = [], gn = [], gc = [], gi = [];
+      for (let ju = 0; ju <= NX; ju++) for (let jv = 0; jv <= NZ; jv++) {
+        const [x, z] = W2(lerp(u0, u1, ju / NX), lerp(v0, v1, jv / NZ));
+        gp.push(x, bedHeightJS(x, z) + 0.14, z); gn.push(0, 1, 0);
+        const k = 0.9 + 0.2 * vnz(x * 0.1, z * 0.1, 66);
+        gc.push(0.22 * k, 0.42 * k, 0.16 * k);
+      }
+      for (let ju = 0; ju < NX; ju++) for (let jv = 0; jv < NZ; jv++) { const o = ju * (NZ + 1) + jv; gi.push(o, o + 1, o + NZ + 1, o + 1, o + NZ + 2, o + NZ + 1); }
+      const gg = new THREE.BufferGeometry();
+      gg.setAttribute("position", new THREE.Float32BufferAttribute(gp, 3));
+      gg.setAttribute("normal", new THREE.Float32BufferAttribute(gn, 3));
+      gg.setAttribute("color", new THREE.Float32BufferAttribute(gc, 3));
+      gg.setIndex(gi);
+      const gm = new THREE.Mesh(gg, curved(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })));
+      gm.frustumCulled = false;
+      c.group.add(gm);
+      const nt = Math.floor(((u1 - u0) * (v1 - v0)) / 110);
+      for (let k = 0; k < nt; k++) { const [x, z] = W2(lerp(u0, u1, 0.06 + 0.88 * R()), lerp(v0, v1, 0.06 + 0.88 * R())); trees.push([x, bedHeightJS(x, z), z, 0.8 + R() * 0.9, R()]); }
+      if (pi === 0) fountain = W2((u0 + u1) / 2, (v0 + v1) / 2);
+    });
+    if (trees.length) {
+      const tm = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.15, 0.22, 2.6, 5).translate(0, 1.3, 0), curved(new THREE.MeshLambertMaterial({ color: 0x5a4330 })), trees.length);
+      const cm = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1.7, 0).translate(0, 3.6, 0), curved(new THREE.MeshLambertMaterial()), trees.length);
+      cm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(trees.length * 3), 3);
+      const m4 = new THREE.Matrix4(), col = new THREE.Color();
+      trees.forEach(([x, y, z, k, v], i) => {
+        m4.makeScale(k, k, k).setPosition(x, y - 0.1, z);
+        tm.setMatrixAt(i, m4); cm.setMatrixAt(i, m4);
+        cm.setColorAt(i, col.setHSL(0.25 + 0.07 * v, 0.5, 0.2 + 0.12 * v));
+      });
+      tm.frustumCulled = cm.frustumCulled = false;
+      c.group.add(tm, cm);
+    }
+    if (fountain) {
+      const [fx, fz] = fountain, fy = bedHeightJS(fx, fz);
+      const stone = curved(new THREE.MeshStandardMaterial({ color: 0xb8b2a4, roughness: 0.9 }));
+      const basin = new THREE.Mesh(new THREE.CylinderGeometry(4.6, 4.9, 0.9, 20), stone);
+      basin.position.set(fx, fy + 0.4, fz);
+      const water = new THREE.Mesh(new THREE.CylinderGeometry(4.1, 4.1, 0.1, 20), curved(new THREE.MeshStandardMaterial({ color: 0x3a9fc0, roughness: 0.1, metalness: 0.2, transparent: true, opacity: 0.85 })));
+      water.position.set(fx, fy + 0.78, fz);
+      const col2 = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.6, 3.2, 8), stone);
+      col2.position.set(fx, fy + 2.1, fz);
+      const bowl = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 0.5, 0.5, 12), stone);
+      bowl.position.set(fx, fy + 3.5, fz);
+      c.group.add(basin, water, col2, bowl);
+      colliders.push({ x: fx, z: fz, hw: 4.8, hd: 4.8, rot: 0, top: fy + 1, chunk: a.id });
+    }
+    // street lights that really light the street: a warm pool on the road under every lamp, and a lamp head that glows
+    const poolG = { pos: [], uv: [], idx: [] };
+    for (let i = 0; i < lampsP.length; i += 3) {
+      const x = lampsP[i], z = lampsP[i + 2], y = lampsP[i + 1] - 5.9, o = poolG.pos.length / 3, r = 9;
+      for (const [ux, uz] of [[0, 0], [1, 0], [1, 1], [0, 1]]) poolG.pos.push(x + (ux - 0.5) * 2 * r, y + 0.25, z + (uz - 0.5) * 2 * r), poolG.uv.push(ux, uz);
+      poolG.idx.push(o, o + 2, o + 1, o, o + 3, o + 2);
+    }
+    let poolMat = null, headMat = null;
+    if (poolG.pos.length) {
+      const pg = new THREE.BufferGeometry();
+      pg.setAttribute("position", new THREE.Float32BufferAttribute(poolG.pos, 3));
+      pg.setAttribute("uv", new THREE.Float32BufferAttribute(poolG.uv, 2));
+      pg.setIndex(poolG.idx);
+      poolMat = curved(new THREE.MeshBasicMaterial({ map: dotTexture, color: 0xffb860, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 }));
+      const pm2 = new THREE.Mesh(pg, poolMat);
+      pm2.frustumCulled = false;
+      c.group.add(pm2);
+      headMat = new THREE.MeshBasicMaterial({ color: 0x555555 });
+      const hm = new THREE.InstancedMesh(new THREE.BoxGeometry(1.0, 0.22, 0.4), curved(headMat), lampsP.length / 3);
+      const m4 = new THREE.Matrix4();
+      for (let i = 0; i < lampsP.length; i += 3) hm.setMatrixAt(i / 3, m4.makeTranslation(lampsP[i], lampsP[i + 1] + 0.05, lampsP[i + 2]));
+      hm.frustumCulled = false;
+      c.group.add(hm);
+    }
+    // aerials with red lights, and the billboards (always bright: they are lit signs)
+    const mastG = new THREE.BufferGeometry();
+    mastG.setAttribute("position", new THREE.Float32BufferAttribute(masts.flat(), 3));
+    const mastM = curved(new THREE.PointsMaterial({ color: 0xff2a1a, size: 3.2, sizeAttenuation: true, map: dotTexture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    const mastP = new THREE.Points(mastG, mastM);
+    mastP.frustumCulled = false;
+    c.group.add(mastP);
+    if (signBuf.pos.length) {
+      const sg = bufMesh(signBuf, curved(new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, toneMapped: false })), false);
+      c.group.add(sg);
+    }
+
     if (asph.pos.length) {
       const ag = new THREE.BufferGeometry();
       ag.setAttribute("position", new THREE.Float32BufferAttribute(asph.pos, 3));
@@ -1271,12 +1424,13 @@ function* buildIslandExtras(c) {
         mesh.add(sp);
         return sp;
       });
+      addHeadCones(mesh);
       c.group.add(mesh);
       cars.push({ mesh, run, s: R() * (run.pts.length - 2), dir: R() < 0.5 ? 1 : -1, speed: 1.6 + R() * 1.6, lights });
     }
     const lg = new THREE.BufferGeometry();
     lg.setAttribute("position", new THREE.Float32BufferAttribute(lampsP, 3));
-    const lm = curved(new THREE.PointsMaterial({ color: 0xffc27a, size: 3, sizeAttenuation: false, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    const lm = curved(new THREE.PointsMaterial({ color: 0xffc27a, size: 4.5, sizeAttenuation: true, map: dotTexture, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
     const pts = new THREE.Points(lg, lm);
     pts.frustumCulled = false;
     c.group.add(pts);
@@ -1289,8 +1443,16 @@ function* buildIslandExtras(c) {
     c.group.add(wpts);
     c.updaters.push((t, dt, lampsOn) => {
       _cityMat.emissiveIntensity = 1.5 * lampsOn;
-      lm.opacity = 0.9 * lampsOn;
+      lm.opacity = 0.95 * lampsOn;
       wm.opacity = 0.95 * smooth(0.05, 0.5, lampsOn);
+      if (poolMat) { poolMat.opacity = 0.55 * lampsOn; headMat.color.setRGB(0.35 + 0.65 * lampsOn, 0.33 + 0.55 * lampsOn, 0.3 + 0.2 * lampsOn); }
+      mastM.opacity = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * 3));
+      _coneMat.opacity = 0.17 * lampsOn;
+      for (let i = 0; i < lights.length; i++) { // traffic lights: green, yellow, red in turn, the cross street the other way about
+        const L = lights[i], ph = (t + L[4] + (L[3] ? 6 : 0)) % 12;
+        if (ph < 5) tlCol.set([0.1, 1, 0.3], i * 3); else if (ph < 6) tlCol.set([1, 0.8, 0.1], i * 3); else tlCol.set([1, 0.12, 0.08], i * 3);
+      }
+      tlG.attributes.color.needsUpdate = true;
       for (const car of cars) {
         const ps = car.run.pts, np = ps.length;
         car.s += car.dir * car.speed * dt;
@@ -1386,6 +1548,21 @@ function islandRoad(a) {
 }
 const CAR_COLORS = [0xc8342b, 0xf2f2ee, 0x2f5d8c, 0x3c3c3c, 0xe0b23a, 0x3f7a4a, 0x8a8f96];
 const _carGeo = {};
+// two soft cones of light ahead of a car's headlamps (one shared material, brightened at night)
+let _coneMat = null, _coneGeo = null;
+function addHeadCones(mesh) {
+  if (!_coneMat) {
+    _coneMat = new THREE.MeshBasicMaterial({ color: 0xfff0c8, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
+    _coneGeo = new THREE.CylinderGeometry(2.3, 0.06, 15, 12, 1, true).rotateX(Math.PI / 2).translate(0, 0, 7.5);
+  }
+  for (const x of [-0.6, 0.6]) {
+    const m = new THREE.Mesh(_coneGeo, _coneMat);
+    m.position.set(x, 0.7, 2.2);
+    m.rotation.x = 0.07;
+    m.frustumCulled = false;
+    mesh.add(m);
+  }
+}
 function carGeometry(color) {
   return (_carGeo[color] ||= mergeGeos([
     pBox(1.8, 0.7, 4.2, color, 0, 0.65, 0), pBox(1.6, 0.6, 2.1, 0x22303a, 0, 1.25, -0.2),
@@ -1508,10 +1685,12 @@ function* extrasRoad(c) {
       mesh.add(s);
       return s;
     });
+    addHeadCones(mesh);
     c.group.add(mesh);
     cars.push({ mesh, run, s: R() * (run.pts.length - 2), dir: R() < 0.5 ? 1 : -1, speed: 2.2 + R() * 1.6, lights }); // (speed in road points per second: 5 m apart)
   }
   c.updaters.push((t, dt, lampsOn) => {
+    if (_coneMat) _coneMat.opacity = 0.17 * lampsOn;
     for (const car of cars) {
       const pts = car.run.pts, n = pts.length;
       car.s += car.dir * car.speed * dt;

@@ -9,7 +9,11 @@ New in 7.6: A REAL CITY
   plant on the rest, setback tiers on the tall ones, towers toward the middle only.
 - Asphalt streets, street lamps every 20 m (glowing at night), and cars driving the streets with headlights.
 - The ground is no longer flat: rolling hills, with buildings founded down to the low corner on slopes. Big city islands are built over only in a core.
-- Untested visually before shipping: check the city and report anything odd.
+- Life in the streets: crosswalks, a dashed centre line, traffic lights that cycle (the cross street opposite), parks with trees and a fountain in the one nearest
+  the middle, aerials with blinking red lights, lit billboards on some roofs.
+- Street lamps now really light up at night: a warm pool of light on the road under every lamp, a glowing lamp head and a bigger halo.
+- Cars (in the city and on the coast roads) now throw two cones of light ahead of their headlamps at night.
+- Not seen on screen before shipping (my test runs missed the city): check it and report anything odd.
 
 New in 7.5: ISLANDS THAT JOIN INTO LANDMASSES
 - An island is no longer limited to its own 1.2 km cell. The land is now the union of the islands round any point, softened with a smooth minimum, so islands that
