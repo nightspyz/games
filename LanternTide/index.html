@@ -9514,8 +9514,8 @@ function updateSpace(dt) {
   spaceState.fade = 0;
   spaceState.vis = smooth(1500, 3500, alt);
   const k = lerp(K_LOW, K_HIGH, smooth(150, 3000, alt));
-  sharedCurve.value = k;
-  shared.uSpace.value = spaceState.dark;
+  sharedCurve.value = dbgOff.curve ? 0 : k;
+  shared.uSpace.value = dbgOff.space ? 0 : spaceState.dark;
   const Rs = 1 / (2 * k);
   // a deeper view distance as you climb
   const far = alt > 1500 ? 900000 : 12000;
@@ -9752,9 +9752,9 @@ let prevHours = game.hours;
 let last = performance.now();
 const dbgOff = {};
 {
-  const names = ["sky", "water", "foam", "land", "far", "clouds", "fog"];
+  const names = ["sky", "water", "foam", "land", "far", "clouds", "fog", "curve", "space"];
   addEventListener("keydown", (e) => {
-    if (!e.altKey || !/^Digit[1-7]$/.test(e.code)) return;
+    if (!e.altKey || !/^Digit[1-9]$/.test(e.code)) return;
     const n = names[+e.code[5] - 1];
     dbgOff[n] = !dbgOff[n];
     if (n === "clouds") skyCache.setQuality(0, 0, false);
