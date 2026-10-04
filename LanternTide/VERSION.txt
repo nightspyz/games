@@ -1,7 +1,11 @@
-Lantern Tide - version 3.7 (4 Oct 2026)
+Lantern Tide - version 3.8 (4 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 3.8:
+- More natural floating: treading water, your eyes sit a hand's breadth above the surface (set from your real height), you rise
+  and fall with each wave and bob gently; a big wave can wash over your head.
 
 New in 3.7:
 - Swim with your arms: in deep water hold a trigger and sweep that hand through the water (pull it back, down or sideways);

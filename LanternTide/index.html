@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v3.7 -->
+<!-- Lantern Tide v3.8 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -37,7 +37,7 @@ canvas{display:block;touch-action:none}
 <button id="vr">Enter VR</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// Lantern Tide v3.7: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v3.8: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 (() => {
@@ -4652,13 +4652,15 @@ function updatePlayer(dt) {
   // up and down
   const here = surfaceAt(player.x, player.z);
   if (player.swim) {
-    const floatY = lerp(player.waterSm, surf, 0.3) - 1.4; // feet this far below the surface keeps your head just out
+    // treading water: you ride the waves with just your eyes a hand's breadth above the surface, bobbing a little as they pass
+    const eyeH = clamp(camera.position.y, 0.9, 2.1);
+    const floatY = lerp(player.waterSm, surf, 0.85) - eyeH + 0.1 + 0.025 * Math.sin(t * 1.7 + player.x);
     let target = floatY;
     if (Math.abs(my) > 0.05) target = player.y + my * 0.6; // swimming up or down
-    player.vy += (clamp((target - player.y) * 3, -2.5, 2.5) - player.vy) * (1 - Math.exp(-dt * 4));
+    player.vy += (clamp((target - player.y) * 4, -2.5, 2.5) - player.vy) * (1 - Math.exp(-dt * 6));
     if (jumpReq) player.vy = 3; // a kick toward the surface
     player.y += player.vy * dt;
-    player.y = clamp(player.y, here + 0.12, floatY + 0.35);
+    player.y = clamp(player.y, here + 0.12, floatY + 0.25);
     player.grounded = false;
   } else {
     if (jumpReq && player.grounded) {
