@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lantern Tide</title>
-<!-- Lantern Tide v3.8 -->
+<!-- Lantern Tide v3.9 -->
 <style>
 html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 canvas{display:block;touch-action:none}
@@ -37,7 +37,7 @@ canvas{display:block;touch-action:none}
 <button id="vr">Enter VR</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// Lantern Tide v3.8: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v3.9: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 (() => {
@@ -5894,7 +5894,7 @@ const menuTex = new THREE.CanvasTexture(menuCanvas);
 const menuPanel = new THREE.Mesh(new THREE.PlaneGeometry(PW, PH), new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, toneMapped: false, depthTest: false }));
 menuPanel.renderOrder = 60;
 menuPanel.visible = false;
-scene.add(menuPanel);
+rig.add(menuPanel); // lives in your play space, so it stays put relative to you as you walk, swim or turn
 const SLIDER = { x: 60, y: 168, w: 780, h: 34 };
 const mbtns = [];
 const mlabels = []; // { tab, text, x, y, size, color }
@@ -6108,8 +6108,10 @@ function toggleMenu(force) {
       camera.getWorldDirection(_sD);
       _sD.y = 0;
       _sD.normalize();
-      menuPanel.position.set(camPos.x + _sD.x * 1.1, camPos.y - 0.1, camPos.z + _sD.z * 1.1);
-      menuPanel.rotation.set(0, Math.atan2(camPos.x - menuPanel.position.x, camPos.z - menuPanel.position.z), 0);
+      _sD.applyQuaternion(_mq.copy(rig.quaternion).invert()); // into the rig's own space
+      const cl = camera.position;
+      menuPanel.position.set(cl.x + _sD.x * 1.1, cl.y - 0.1, cl.z + _sD.z * 1.1);
+      menuPanel.rotation.set(0, Math.atan2(cl.x - menuPanel.position.x, cl.z - menuPanel.position.z), 0);
       menu.sig = "";
     }
     menuPanel.visible = want;

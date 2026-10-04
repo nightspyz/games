@@ -1,7 +1,11 @@
-Lantern Tide - version 3.8 (4 Oct 2026)
+Lantern Tide - version 3.9 (4 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 3.9:
+- The VR menu now stays put relative to you: it is placed in front of you when you press X and then moves with you as you walk,
+  swim or turn, instead of staying behind at a spot in the world.
 
 New in 3.8:
 - More natural floating: treading water, your eyes sit a hand's breadth above the surface (set from your real height), you rise
