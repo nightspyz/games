@@ -798,12 +798,12 @@ function cityMats() {
       return win && on ? [1.0, 0.82, 0.5] : [0, 0, 0];
     });
     _cityMat = curved(new THREE.MeshStandardMaterial({ map: tex, emissiveMap: emi, emissive: 0xffffff, emissiveIntensity: 0, vertexColors: true, roughness: 0.85 }));
-    _cityRoof = curved(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }));
+    _cityRoof = curved(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide }));
   }
   return [_cityMat, _cityRoof];
 }
 // a building as raw arrays: four walls with window UVs, and a flat roof
-function addBuilding(wall, roof, cx, cz, y0, w, d, h, rotY, color) {
+function addBuilding(wall, roof, cx, cz, y0, w, d, h, rotY, color, roofCol = null) {
   const c = Math.cos(rotY), s = Math.sin(rotY);
   const hw = w / 2, hd = d / 2;
   const corner = (lx, lz) => [cx + lx * c + lz * s, cz - lx * s + lz * c];
@@ -824,10 +824,31 @@ function addBuilding(wall, roof, cx, cz, y0, w, d, h, rotY, color) {
     else wall.idx.push(o, o + 2, o + 1, o, o + 3, o + 2);
   }
   const o = roof.pos.length / 3;
-  for (const p of P) roof.pos.push(p[0], y0 + h, p[1]), roof.nor.push(0, 1, 0), roof.col.push(0.3, 0.3, 0.32);
+  for (const p of P) roof.pos.push(p[0], y0 + h, p[1]), roof.nor.push(0, 1, 0), roof.col.push(roofCol ? roofCol.r : 0.3, roofCol ? roofCol.g : 0.3, roofCol ? roofCol.b : 0.32);
   const up = (P[2][1] - P[0][1]) * (P[1][0] - P[0][0]) - (P[1][1] - P[0][1]) * (P[2][0] - P[0][0]); // y of (p1-p0)x(p2-p0)
   if (up > 0) roof.idx.push(o, o + 1, o + 2, o, o + 2, o + 3);
   else roof.idx.push(o, o + 2, o + 1, o, o + 3, o + 2);
+}
+// a pitched (gable) roof over a w x d footprint, ridge along the longer side, as triangles with outward normals
+function addGable(buf, cx, cz, y0, w, d, rise, rotY, color, over = 0.5) {
+  const c = Math.cos(rotY), s = Math.sin(rotY), alongX = w >= d;
+  const hw = w / 2 + over, hd = d / 2 + over;
+  const W = (lx, ly, lz) => [cx + lx * c + lz * s, y0 + ly, cz - lx * s + lz * c];
+  const A = W(-hw, 0, -hd), B = W(hw, 0, -hd), C = W(hw, 0, hd), D = W(-hw, 0, hd);
+  const R1 = alongX ? W(-hw, rise, 0) : W(0, rise, -hd), R2 = alongX ? W(hw, rise, 0) : W(0, rise, hd);
+  const mid = [cx, y0 + rise / 2, cz];
+  const tri = (p, q, r) => {
+    const ux = q[0] - p[0], uy = q[1] - p[1], uz = q[2] - p[2], vx = r[0] - p[0], vy = r[1] - p[1], vz = r[2] - p[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const l = Math.hypot(nx, ny, nz) || 1;
+    nx /= l; ny /= l; nz /= l;
+    if (nx * (p[0] - mid[0]) + ny * (p[1] - mid[1]) + nz * (p[2] - mid[2]) < 0) (nx = -nx), (ny = -ny), (nz = -nz);
+    const o = buf.pos.length / 3;
+    for (const v of [p, q, r]) buf.pos.push(v[0], v[1], v[2]), buf.nor.push(nx, ny, nz), buf.col.push(color.r, color.g, color.b);
+    buf.idx.push(o, o + 1, o + 2);
+  };
+  if (alongX) { tri(A, B, R2); tri(A, R2, R1); tri(D, C, R2); tri(D, R2, R1); tri(A, D, R1); tri(B, C, R2); }
+  else { tri(A, D, R2); tri(A, R2, R1); tri(B, C, R2); tri(B, R2, R1); tri(A, B, R1); tri(D, C, R2); }
 }
 const newBuf = () => ({ pos: [], nor: [], uv: [], col: [], idx: [] });
 function bufMesh(b, mat, uv = true) {
@@ -873,16 +894,18 @@ function* extrasTrees(c) {
   if (a.type === 1) kinds = a.veg === 2 ? [["broad", 1]] : a.veg === 1 ? [["broad", 1]] : null;
   else if (a.type === 2) kinds = [["snag", 1]];
   else if (a.type === 3) kinds = [["cypress", 0.8], ["broad", 0.2]];
+  else if (a.type === 5) kinds = [["broad", 0.7], ["cypress", 0.3]];
   else return;
   if (!kinds) return;
   const area = a.r * a.r;
-  const want = Math.floor(area * (a.type === 1 ? (a.veg === 2 ? 0.0034 : 0.0016) : a.type === 2 ? 0.0009 : 0.0016));
+  const want = Math.floor(area * (a.type === 1 ? (a.veg === 2 ? 0.0034 : 0.0016) : a.type === 2 ? 0.0009 : a.type === 5 ? 0.0012 : 0.0016));
   const lists = {}, m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new THREE.Vector3(), p = new THREE.Vector3();
   let total = 0;
   for (let tries = 0; tries < want * 6 && total < want; tries++) {
     const th = R() * 6.2832, rr = Math.sqrt(R()) * isleCoastR(a, th), x = a.x + Math.cos(th) * rr, z = a.z + Math.sin(th) * rr;
     const d = isleDist(a, x, z), h = bedHeightJS(x, z);
-    if (d > -10 || h < 1.5 || h > (a.type === 2 ? 40 : 16)) continue;
+    if (d > -10 || h < 1.5 || h > (a.type === 2 ? 40 : a.type === 5 ? 30 : 16)) continue;
+    if (a.type === 5 && inCityZone(a, x, z, 26)) continue; // (the city's own streets and parks carry its trees)
     const f = forestDensity(x, z);
     if (R() > smooth(0.34, 0.6, f) * 0.95 + 0.06) continue;
     if (poiKeepClear(a, x, z, 3) || (a.paths && distToPaths(a, x, z) < 2.4) || (a.farm && farmMask(a, x, z) > 0.1) || nearRoad(a, x, z, 8)) continue;
@@ -1115,45 +1138,316 @@ function* buildIslandExtras(c) {
     }
     yield;
   } else if (a.type === 5) {
-    // a city: a grid of streets, buildings that grow taller toward the middle, lit windows at night
+    // a city: streets of uneven blocks (a little turned), lots of different sizes with some left empty, flat and pitched roofs, buildings that
+    // grow taller toward the middle on rolling ground, lit windows, street lamps and cars on the roads
     const [wallMat, roofMat] = cityMats();
-    const wall = newBuf(), roof = newBuf();
-    const tmp = new THREE.Color();
-    const winP = [], winC = [];
-    let n = 0;
-    const G = 30, N = Math.ceil(a.r / G) + 1;
-    for (let gx = -N; gx <= N; gx++)
-      for (let gz = -N; gz <= N; gz++) {
-        const cx = a.x + gx * G + 7 + 11.5, cz = a.z + gz * G + 7 + 11.5;
-        if (isleDist(a, cx, cz) > -52) continue;
-        const rho = Math.hypot(cx - a.x, cz - a.z) / a.r;
-        if (R() < 0.12) continue;
-        const w = 11 + R() * 10, d = 11 + R() * 10;
-        const h = 8 + (1 - smooth(0, 0.9, rho)) * 52 * Math.pow(R(), 1.3) + R() * 8;
-        tmp.setHSL(0.08 + R() * 0.06, 0.15 + R() * 0.2, 0.62 + R() * 0.2);
-        const by = bedHeightJS(cx, cz) - 0.4;
-        addBuilding(wall, roof, cx, cz, by, w, d, h, 0, tmp);
-        if (h > 35) addBuilding(wall, roof, cx, cz, by + h, w * 0.6, d * 0.6, 10 + R() * 8, 0, tmp);
-        colliders.push({ x: cx, z: cz, hw: w / 2, hd: d / 2, rot: 0, top: by + h + (h > 35 ? 10 : 0), chunk: a.id });
-        // lights in the windows, seen from far away (as in Coastline's town): small glowing points on the walls
-        for (let k = 0; k < 10; k++) {
-          const wl = Math.floor(R() * 4), u = (R() - 0.5), yy = by + 2 + R() * (h - 3);
-          const px = wl < 2 ? cx + u * w : cx + (wl === 2 ? 1 : -1) * (w / 2 + 0.4), pz = wl < 2 ? cz + (wl === 0 ? 1 : -1) * (d / 2 + 0.4) : cz + u * d;
-          winP.push(px, yy, pz);
-          const warm = R();
-          winC.push(1, 0.72 + warm * 0.15, 0.4 + warm * 0.2);
+    const wall = newBuf(), roof = newBuf(), asph = { pos: [], nor: [], idx: [] };
+    const tmp = new THREE.Color(), rc = new THREE.Color();
+    const winP = [], winC = [], lampsP = [], poles = [], runs = [], parks = [], masts = [], signBuf = newBuf();
+    const ang = ((a.p2 - 3.14) / 3.14) * 0.28, cA = Math.cos(ang), sA = Math.sin(ang);
+    const zone = cityZone(a), Rc = zone.R, E = Rc * 1.25 + 60; // the built-up patch (the rest of the island stays green)
+    const W2 = (u, v) => [zone.x + u * cA - v * sA, zone.z + u * sA + v * cA];
+    const lines = () => { const out = []; let p = -E - R() * 16; while (p < E) { out.push(p); p += 26 + R() * 24 + (out.length % 5 === 0 ? 8 : 0); } return out; };
+    const U = lines(), V = lines();
+    const sw = (i) => (i % 4 === 0 ? 14 : 9); // every fourth street is an avenue
+    const inCity = (x, z, m) => isleDist(a, x, z) < -m && inCityZone(a, x, z, 0);
+    const trees = []; // [x, y, z, size, yaw]: street trees, trees on empty lots and in the parks
+    // the streets: a ribbon of asphalt on the ground every 5 m, split where the street runs out of land
+    const street = (along, k, horizontal) => {
+      const width = sw(k), pos = horizontal ? V[k] : U[k];
+      let run = null;
+      for (let t = -E; t <= E; t += 5) {
+        const [x, z] = horizontal ? W2(t, pos) : W2(pos, t);
+        if (!inCity(x, z, 38)) { run = null; continue; }
+        const y = bedHeightJS(x, z) + 0.12;
+        const tx = horizontal ? cA : -sA, tz = horizontal ? sA : cA; // along the street
+        const rx = tz, rz = -tx;
+        if (!run) { run = { pts: [], loop: false }; runs.push(run); }
+        run.pts.push({ x, y, z, rx, rz, tx, tz });
+        const o = asph.pos.length / 3;
+        asph.pos.push(x - rx * width / 2, y, z - rz * width / 2, x + rx * width / 2, y, z + rz * width / 2);
+        asph.nor.push(0, 1, 0, 0, 1, 0);
+        if (run.pts.length > 1) { const k0 = o - 2; asph.idx.push(k0, o, k0 + 1, k0 + 1, o, o + 1); }
+        const n = run.pts.length;
+        if (n % 2 === 0 && R() < 0.55) { // street trees on the pavement, between the lamps
+          const side = R() < 0.5 ? 1 : -1, off = width / 2 + 2.4;
+          trees.push([x + rx * off * side, bedHeightJS(x + rx * off * side, z + rz * off * side), z + rz * off * side, 0.6 + R() * 0.5, R() * 6.28]);
         }
-        if (++n % 8 === 0) yield;
+        if (n % 4 === 0) { // street lamps: a pole every 20 m, alternating sides
+          const side = (n / 4) % 2 ? 1 : -1, off = width / 2 + 1.1;
+          lampsP.push(x + rx * off * side, y + 6.1, z + rz * off * side);
+          poles.push([x + rx * off * side, y - 0.1, z + rz * off * side]);
+        }
       }
-    c.group.add(bufMesh(wall, wallMat), bufMesh(roof, roofMat, false));
-    const lampsP = [];
-    for (let gx = -N; gx <= N; gx++) for (let gz = -N; gz <= N; gz++) {
-      const x = a.x + gx * G + 3, z = a.z + gz * G + 3;
-      if (isleDist(a, x, z) < -48) lampsP.push(x, bedHeightJS(x, z) + 4.2, z);
+    };
+    U.forEach((u, i) => street(0, i, false));
+    V.forEach((v, j) => street(0, j, true));
+    yield;
+    let n = 0;
+    for (let i = 0; i < U.length - 1; i++)
+      for (let j = 0; j < V.length - 1; j++) {
+        const u0 = U[i] + sw(i) / 2 + 1.5, u1 = U[i + 1] - sw(i + 1) / 2 - 1.5, v0 = V[j] + sw(j) / 2 + 1.5, v1 = V[j + 1] - sw(j + 1) / 2 - 1.5;
+        if (u1 - u0 < 10 || v1 - v0 < 10) continue;
+        const [mx, mz] = W2((u0 + u1) / 2, (v0 + v1) / 2);
+        if (!inCity(mx, mz, 55) || !inCity(...W2(u0, v0), 30) || !inCity(...W2(u1, v1), 30) || !inCity(...W2(u0, v1), 30) || !inCity(...W2(u1, v0), 30)) continue;
+        if (R() < 0.16) { parks.push([u0, u1, v0, v1, Math.hypot(mx - zone.x, mz - zone.z)]); continue; } // a park
+        const rho = Math.hypot(mx - zone.x, mz - zone.z) / (Rc * 1.1);
+        const nu = u1 - u0 > 34 ? (R() < 0.6 ? 2 : 1) : 1, nv = v1 - v0 > 34 ? (R() < 0.6 ? 2 : 1) : 1;
+        for (let p = 0; p < nu; p++)
+          for (let q = 0; q < nv; q++) {
+            if (R() < 0.12 + 0.3 * smooth(0.55, 1, rho)) { // a gap, more of them toward the edge: a few trees stand in it
+              for (let k = 0, m = 1 + Math.floor(R() * 4); k < m; k++) { const [x, z] = W2(lerp(u0, u1, p / nu + (0.1 + 0.8 * R()) / nu), lerp(v0, v1, q / nv + (0.1 + 0.8 * R()) / nv)); trees.push([x, bedHeightJS(x, z), z, 0.7 + R() * 0.8, R() * 6.28]); }
+              continue;
+            }
+            const lu0 = lerp(u0, u1, p / nu) + 1 + R() * 3, lu1 = lerp(u0, u1, (p + 1) / nu) - 1 - R() * 3, lv0 = lerp(v0, v1, q / nv) + 1 + R() * 3, lv1 = lerp(v0, v1, (q + 1) / nv) - 1 - R() * 3;
+            let w = lu1 - lu0, d = lv1 - lv0;
+            if (w < 7 || d < 7) continue;
+            w *= 0.7 + R() * 0.3; d *= 0.7 + R() * 0.3;
+            const [cx, cz] = W2((lu0 + lu1) / 2 + (R() - 0.5) * 2, (lv0 + lv1) / 2 + (R() - 0.5) * 2);
+            const rotY = -ang + (R() - 0.5) * 0.04;
+            // height: mostly low and mid, a few towers near the middle
+            const tall = (1 - smooth(0, 0.8, rho)) * Math.pow(R(), 2.2);
+            const h = 6 + R() * 9 + tall * 58;
+            const hw = w / 2, hd = d / 2, cr = Math.cos(rotY), sr = Math.sin(rotY);
+            let lo = 1e9, hi = -1e9;
+            for (const [ex, ez] of [[0, 0], [hw, hd], [-hw, hd], [hw, -hd], [-hw, -hd]]) { const y = bedHeightJS(cx + ex * cr + ez * sr, cz - ex * sr + ez * cr); lo = Math.min(lo, y); hi = Math.max(hi, y); }
+            const by = lo - 0.5, ht = h + (hi - lo); // (the foundation reaches down to the low corner on a slope)
+            const tone = R();
+            if (tone < 0.38) tmp.setHSL(0.09 + R() * 0.04, 0.12 + R() * 0.16, 0.6 + R() * 0.2); // concrete
+            else if (tone < 0.62) tmp.setHSL(0.03 + R() * 0.03, 0.3 + R() * 0.15, 0.5 + R() * 0.12); // brick
+            else if (tone < 0.82) tmp.setHSL(0.55 + R() * 0.05, 0.1 + R() * 0.12, 0.62 + R() * 0.18); // grey-blue
+            else tmp.setHSL(0.12 + R() * 0.04, 0.3 + R() * 0.2, 0.74 + R() * 0.1); // pale stucco
+            let topY = by + ht;
+            // roofs: pitched on low buildings, flat with a parapet and rooftop plant on the rest
+            const pitched = h < 20 && R() < 0.6;
+            if (pitched) {
+              addBuilding(wall, roof, cx, cz, by, w, d, ht, rotY, tmp, rc.setHSL(0.02 + R() * 0.04, 0.4, 0.3));
+              addGable(roof, cx, cz, by + ht, w, d, Math.min(w, d) * (0.22 + R() * 0.12), rotY, rc.setHSL(0.02 + R() * 0.05, 0.45 + R() * 0.2, 0.26 + R() * 0.12));
+              topY += Math.min(w, d) * 0.3;
+            } else {
+              let wy = by, ww = w, wd = d, wh = ht;
+              if (h > 30 && R() < 0.7) { // a setback tier on the tall ones
+                addBuilding(wall, roof, cx, cz, by, w, d, ht, rotY, tmp, rc.setRGB(0.3, 0.3, 0.32));
+                wy = by + ht; ww = w * (0.55 + R() * 0.15); wd = d * (0.55 + R() * 0.15); wh = 8 + R() * 14;
+              }
+              addBuilding(wall, roof, cx, cz, wy, ww, wd, wh, rotY, tmp, rc.setRGB(0.28 + R() * 0.08, 0.28 + R() * 0.08, 0.3 + R() * 0.08));
+              topY = wy + wh;
+              const par = rc.setRGB(0.4, 0.4, 0.42); // parapet: four low walls round the edge
+              for (const [px, pz, pw, pd] of [[0, (wd / 2) - 0.2, ww, 0.4], [0, -(wd / 2) + 0.2, ww, 0.4], [(ww / 2) - 0.2, 0, 0.4, wd], [-(ww / 2) + 0.2, 0, 0.4, wd]])
+                addBuilding(roof, roof, cx + px * cr + pz * sr, cz - px * sr + pz * cr, topY, pw, pd, 0.7, rotY, par);
+              for (let k = 0, m = 1 + Math.floor(R() * 3); k < m; k++) // plant, tanks and stair heads
+                addBuilding(roof, roof, cx + (R() - 0.5) * ww * 0.5 * cr, cz - (R() - 0.5) * ww * 0.5 * sr, topY, 1.4 + R() * 2.4, 1.4 + R() * 2.2, 1.0 + R() * 1.8, rotY, rc.setRGB(0.5 + R() * 0.15, 0.5 + R() * 0.12, 0.52));
+              topY += 2.5;
+            }
+            if (h > 42 && R() < 0.7) { const mh = 10 + R() * 9; addBuilding(roof, roof, cx, cz, topY, 0.5, 0.5, mh, rotY, rc.setRGB(0.55, 0.55, 0.58)); masts.push([cx, topY + mh + 0.4, cz]); topY += mh; } // an aerial with a red light
+            else if (!pitched && h > 12 && R() < 0.22) { // a lit billboard on stilts
+              const sc = tmp.clone().setHSL(R(), 0.8, 0.55), by2 = topY - 1.5;
+              addBuilding(signBuf, signBuf, cx, cz, by2, Math.min(w * 0.7, 14), 0.45, 3.6, rotY, sc);
+              addBuilding(roof, roof, cx, cz, by2 - 1.2, 0.5, 0.5, 1.4, rotY, rc.setRGB(0.4, 0.4, 0.42));
+              topY += 2.2;
+            }
+            colliders.push({ x: cx, z: cz, hw: w / 2, hd: d / 2, rot: rotY, top: topY, chunk: a.id });
+            for (let k = 0; k < 8; k++) { // lit windows seen from afar
+              const wl = Math.floor(R() * 4), uu = R() - 0.5, yy = by + 2 + R() * (ht - 3);
+              const lx = wl < 2 ? uu * w : (wl === 2 ? 1 : -1) * (w / 2 + 0.4), lz = wl < 2 ? (wl === 0 ? 1 : -1) * (d / 2 + 0.4) : uu * d;
+              winP.push(cx + lx * cr + lz * sr, yy, cz - lx * sr + lz * cr);
+              const warm = R();
+              winC.push(1, 0.72 + warm * 0.15, 0.4 + warm * 0.2);
+            }
+            if (++n % 6 === 0) yield;
+          }
+      }
+    const wmesh = bufMesh(wall, wallMat), rmesh = bufMesh(roof, roofMat, false);
+    c.group.add(wmesh, rmesh);
+    // ----- the life of the streets: crosswalks, lane marks, traffic lights, parks with trees, a fountain, lit lamps, aerials and signs -----
+    const marks = { pos: [], nor: [], col: [], idx: [] };
+    const quad = (cx2, cz2, y, alx, alz, hl, hw2, col) => { // a flat strip on the ground: centre, direction along, half length, half width
+      const rx = alz, rz = -alx, o = marks.pos.length / 3;
+      for (const [sa, sb] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) marks.pos.push(cx2 + alx * hl * sa + rx * hw2 * sb, y, cz2 + alz * hl * sa + rz * hw2 * sb), marks.nor.push(0, 1, 0), marks.col.push(col[0], col[1], col[2]);
+      marks.idx.push(o, o + 1, o + 2, o, o + 2, o + 3);
+    };
+    for (const run of runs) for (let k = 0; k + 1 < run.pts.length; k += 2) { // a dashed yellow line down the middle
+      const p = run.pts[k], q = run.pts[k + 1];
+      quad((p.x + q.x) / 2, (p.z + q.z) / 2, (p.y + q.y) / 2 + 0.05, p.tx, p.tz, 1.2, 0.1, [0.85, 0.7, 0.2]);
+    }
+    const lights = []; // traffic lights: [x, y, z, which street, phase]
+    const sigPoles = [];
+    for (let i = 0; i < U.length; i++) for (let j = 0; j < V.length; j++) {
+      const [x, z] = W2(U[i], V[j]);
+      if (!inCity(x, z, 42)) continue;
+      const y = bedHeightJS(x, z) + 0.17, ph = R() * 12;
+      for (const [axis, wid, off] of [[0, sw(i), sw(j) / 2 + 2.6], [1, sw(j), sw(i) / 2 + 2.6]]) { // zebra crossings on each of the four arms
+        const dx = axis === 0 ? -sA : cA, dz = axis === 0 ? cA : sA; // along the street (axis 0 runs along v)
+        for (const sg of [-1, 1]) for (let k = -Math.floor(wid / 2 / 1.1); k <= Math.floor(wid / 2 / 1.1); k++) {
+          const px = x + dx * off * sg + dz * k * 1.1, pz = z + dz * off * sg - dx * k * 1.1;
+          quad(px, pz, y, dx, dz, 1.3, 0.28, [0.88, 0.88, 0.86]);
+        }
+      }
+      for (let w = 0; w < 2; w++) { // a signal on a pole at a corner for each street
+        const ox = w === 0 ? sw(i) / 2 + 0.8 : -(sw(i) / 2 + 0.8), oz = w === 0 ? sw(j) / 2 + 0.8 : -(sw(j) / 2 + 0.8);
+        const [px, pz] = W2(U[i] + ox, V[j] + oz);
+        const py = bedHeightJS(px, pz);
+        sigPoles.push([px, py - 0.1, pz]);
+        lights.push([px, py + 4.6, pz, w, ph]);
+      }
+    }
+    if (marks.pos.length) {
+      const mg = new THREE.BufferGeometry();
+      mg.setAttribute("position", new THREE.Float32BufferAttribute(marks.pos, 3));
+      mg.setAttribute("normal", new THREE.Float32BufferAttribute(marks.nor, 3));
+      mg.setAttribute("color", new THREE.Float32BufferAttribute(marks.col, 3));
+      mg.setIndex(marks.idx);
+      const mm = new THREE.Mesh(mg, curved(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 })));
+      mm.frustumCulled = false;
+      c.group.add(mm);
+    }
+    yield;
+    if (sigPoles.length) {
+      const sm = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.07, 0.09, 4.7, 5).translate(0, 2.35, 0), curved(new THREE.MeshLambertMaterial({ color: 0x2c2f33 })), sigPoles.length);
+      const m4 = new THREE.Matrix4();
+      sigPoles.forEach((p, i) => sm.setMatrixAt(i, m4.makeTranslation(p[0], p[1], p[2])));
+      sm.frustumCulled = false;
+      c.group.add(sm);
+    }
+    const tlG = new THREE.BufferGeometry(), tlPos = new Float32Array(lights.length * 3), tlCol = new Float32Array(lights.length * 3);
+    lights.forEach((l, i) => tlPos.set([l[0], l[1], l[2]], i * 3));
+    tlG.setAttribute("position", new THREE.BufferAttribute(tlPos, 3));
+    tlG.setAttribute("color", new THREE.BufferAttribute(tlCol, 3));
+    const tlM = curved(new THREE.PointsMaterial({ size: 0.9, sizeAttenuation: true, vertexColors: true, map: dotTexture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    const tlP = new THREE.Points(tlG, tlM);
+    tlP.frustumCulled = false;
+    c.group.add(tlP);
+    // parks: grass laid over the ground, with trees (and a fountain in the one nearest the middle)
+    let fountain = null;
+    parks.sort((p, q) => p[4] - q[4]);
+    parks.forEach((pk, pi) => {
+      const [u0, u1, v0, v1] = pk, NX = 7, NZ = 7, gp = [], gn = [], gc = [], gi = [];
+      for (let ju = 0; ju <= NX; ju++) for (let jv = 0; jv <= NZ; jv++) {
+        const [x, z] = W2(lerp(u0, u1, ju / NX), lerp(v0, v1, jv / NZ));
+        gp.push(x, bedHeightJS(x, z) + 0.14, z); gn.push(0, 1, 0);
+        const k = 0.9 + 0.2 * vnz(x * 0.1, z * 0.1, 66);
+        gc.push(0.22 * k, 0.42 * k, 0.16 * k);
+      }
+      for (let ju = 0; ju < NX; ju++) for (let jv = 0; jv < NZ; jv++) { const o = ju * (NZ + 1) + jv; gi.push(o, o + 1, o + NZ + 1, o + 1, o + NZ + 2, o + NZ + 1); }
+      const gg = new THREE.BufferGeometry();
+      gg.setAttribute("position", new THREE.Float32BufferAttribute(gp, 3));
+      gg.setAttribute("normal", new THREE.Float32BufferAttribute(gn, 3));
+      gg.setAttribute("color", new THREE.Float32BufferAttribute(gc, 3));
+      gg.setIndex(gi);
+      const gm = new THREE.Mesh(gg, curved(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })));
+      gm.frustumCulled = false;
+      c.group.add(gm);
+      const nt = Math.floor(((u1 - u0) * (v1 - v0)) / 70);
+      for (let k = 0; k < nt; k++) { const [x, z] = W2(lerp(u0, u1, 0.06 + 0.88 * R()), lerp(v0, v1, 0.06 + 0.88 * R())); trees.push([x, bedHeightJS(x, z), z, 0.8 + R() * 0.9, R()]); }
+      if (pi === 0) fountain = W2((u0 + u1) / 2, (v0 + v1) / 2);
+    });
+    if (trees.length) {
+      const T = treeGeos(), by = [[], [], []], m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), e4 = new THREE.Euler(), sc4 = new THREE.Vector3(), p4 = new THREE.Vector3();
+      trees.forEach((t) => by[Math.floor(R() * 3)].push(t));
+      by.forEach((list, k) => {
+        if (!list.length) return;
+        const im = new THREE.InstancedMesh(T.broad[k], T.mat, list.length);
+        list.forEach(([x, y, z, sz, yw], i) => { e4.set(0, yw, 0); im.setMatrixAt(i, m4.compose(p4.set(x, y - 0.15, z), q4.setFromEuler(e4), sc4.set(sz, sz * (0.85 + 0.3 * R()), sz))); });
+        im.frustumCulled = false;
+        c.group.add(im);
+      });
+    }
+    if (fountain) {
+      const [fx, fz] = fountain, fy = bedHeightJS(fx, fz);
+      const stone = curved(new THREE.MeshStandardMaterial({ color: 0xb8b2a4, roughness: 0.9 }));
+      const basin = new THREE.Mesh(new THREE.CylinderGeometry(4.6, 4.9, 0.9, 20), stone);
+      basin.position.set(fx, fy + 0.4, fz);
+      const water = new THREE.Mesh(new THREE.CylinderGeometry(4.1, 4.1, 0.1, 20), curved(new THREE.MeshStandardMaterial({ color: 0x3a9fc0, roughness: 0.1, metalness: 0.2, transparent: true, opacity: 0.85 })));
+      water.position.set(fx, fy + 0.78, fz);
+      const col2 = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.6, 3.2, 8), stone);
+      col2.position.set(fx, fy + 2.1, fz);
+      const bowl = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 0.5, 0.5, 12), stone);
+      bowl.position.set(fx, fy + 3.5, fz);
+      c.group.add(basin, water, col2, bowl);
+      colliders.push({ x: fx, z: fz, hw: 4.8, hd: 4.8, rot: 0, top: fy + 1, chunk: a.id });
+    }
+    // street lights that really light the street: a warm pool on the road under every lamp, and a lamp head that glows
+    const poolG = { pos: [], uv: [], idx: [] };
+    for (let i = 0; i < lampsP.length; i += 3) {
+      const x = lampsP[i], z = lampsP[i + 2], y = lampsP[i + 1] - 5.9, o = poolG.pos.length / 3, r = 9;
+      for (const [ux, uz] of [[0, 0], [1, 0], [1, 1], [0, 1]]) poolG.pos.push(x + (ux - 0.5) * 2 * r, y + 0.25, z + (uz - 0.5) * 2 * r), poolG.uv.push(ux, uz);
+      poolG.idx.push(o, o + 2, o + 1, o, o + 3, o + 2);
+    }
+    let poolMat = null, headMat = null;
+    if (poolG.pos.length) {
+      const pg = new THREE.BufferGeometry();
+      pg.setAttribute("position", new THREE.Float32BufferAttribute(poolG.pos, 3));
+      pg.setAttribute("uv", new THREE.Float32BufferAttribute(poolG.uv, 2));
+      pg.setIndex(poolG.idx);
+      poolMat = curved(new THREE.MeshBasicMaterial({ map: dotTexture, color: 0xffb860, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 }));
+      const pm2 = new THREE.Mesh(pg, poolMat);
+      pm2.frustumCulled = false;
+      c.group.add(pm2);
+      headMat = new THREE.MeshBasicMaterial({ color: 0x555555 });
+      const hm = new THREE.InstancedMesh(new THREE.BoxGeometry(1.0, 0.22, 0.4), curved(headMat), lampsP.length / 3);
+      const m4 = new THREE.Matrix4();
+      for (let i = 0; i < lampsP.length; i += 3) hm.setMatrixAt(i / 3, m4.makeTranslation(lampsP[i], lampsP[i + 1] + 0.05, lampsP[i + 2]));
+      hm.frustumCulled = false;
+      c.group.add(hm);
+    }
+    // each street lamp throws a soft cone of light down onto the road
+    let lampConeMat = null;
+    if (lampsP.length) {
+      lampConeMat = lightConeMaterial(0xffc47a);
+      const lc = new THREE.InstancedMesh(unitCone(), lampConeMat, lampsP.length / 3);
+      const m4 = new THREE.Matrix4(), qd = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2), sc4 = new THREE.Vector3(8, 8, 6.0), p4 = new THREE.Vector3();
+      for (let i = 0; i < lampsP.length; i += 3) lc.setMatrixAt(i / 3, m4.compose(p4.set(lampsP[i], lampsP[i + 1] - 0.1, lampsP[i + 2]), qd, sc4));
+      lc.frustumCulled = false;
+      c.group.add(lc);
+    }
+    // aerials with red lights, and the billboards (always bright: they are lit signs)
+    const mastG = new THREE.BufferGeometry();
+    mastG.setAttribute("position", new THREE.Float32BufferAttribute(masts.flat(), 3));
+    const mastM = curved(new THREE.PointsMaterial({ color: 0xff2a1a, size: 3.2, sizeAttenuation: true, map: dotTexture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    const mastP = new THREE.Points(mastG, mastM);
+    mastP.frustumCulled = false;
+    c.group.add(mastP);
+    if (signBuf.pos.length) {
+      const sg = bufMesh(signBuf, curved(new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, toneMapped: false })), false);
+      c.group.add(sg);
+    }
+
+    if (asph.pos.length) {
+      const ag = new THREE.BufferGeometry();
+      ag.setAttribute("position", new THREE.Float32BufferAttribute(asph.pos, 3));
+      ag.setAttribute("normal", new THREE.Float32BufferAttribute(asph.nor, 3));
+      ag.setIndex(asph.idx);
+      const am = new THREE.Mesh(ag, curved(new THREE.MeshStandardMaterial({ color: 0x2b2c30, roughness: 0.95, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })));
+      am.frustumCulled = false;
+      c.group.add(am);
+    }
+    if (poles.length) {
+      const pm = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.09, 0.12, 6.2, 6).translate(0, 3.1, 0), curved(new THREE.MeshLambertMaterial({ color: 0x3a3d42 })), poles.length);
+      const m4 = new THREE.Matrix4();
+      poles.forEach((p, i) => pm.setMatrixAt(i, m4.makeTranslation(p[0], p[1], p[2])));
+      pm.frustumCulled = false;
+      c.group.add(pm);
+    }
+    // cars on the streets
+    const long = runs.filter((r) => r.pts.length > 8), cars = [];
+    const nCars = long.length ? Math.min(28, 6 + Math.floor(long.length * 0.8)) : 0;
+    for (let k = 0; k < nCars; k++) {
+      const run = long[Math.floor(R() * long.length)];
+      const mesh = new THREE.Mesh(carGeometry(CAR_COLORS[Math.floor(R() * CAR_COLORS.length)]), poiMats().plain);
+      const lights = [-0.6, 0.6].map((x) => {
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture, color: 0xfff2d0, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+        sp.scale.setScalar(2.0);
+        sp.position.set(x, 0.7, 2.4);
+        mesh.add(sp);
+        return sp;
+      });
+      addHeadCones(mesh);
+      c.group.add(mesh);
+      cars.push({ mesh, run, s: R() * (run.pts.length - 2), dir: R() < 0.5 ? 1 : -1, speed: 1.6 + R() * 1.6, lights });
     }
     const lg = new THREE.BufferGeometry();
     lg.setAttribute("position", new THREE.Float32BufferAttribute(lampsP, 3));
-    const lm = curved(new THREE.PointsMaterial({ color: 0xffc27a, size: 3, sizeAttenuation: false, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    const lm = curved(new THREE.PointsMaterial({ color: 0xffc27a, size: 4.5, sizeAttenuation: true, map: dotTexture, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
     const pts = new THREE.Points(lg, lm);
     pts.frustumCulled = false;
     c.group.add(pts);
@@ -1166,8 +1460,29 @@ function* buildIslandExtras(c) {
     c.group.add(wpts);
     c.updaters.push((t, dt, lampsOn) => {
       _cityMat.emissiveIntensity = 1.5 * lampsOn;
-      lm.opacity = 0.9 * lampsOn;
+      lm.opacity = 0.95 * lampsOn;
       wm.opacity = 0.95 * smooth(0.05, 0.5, lampsOn);
+      if (lampConeMat) lampConeMat.uniforms.uOpacity.value = 0.5 * lampsOn;
+      if (poolMat) { poolMat.opacity = 0.4 * lampsOn; headMat.color.setRGB(0.35 + 0.65 * lampsOn, 0.33 + 0.55 * lampsOn, 0.3 + 0.2 * lampsOn); }
+      mastM.opacity = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * 3));
+      _coneMat.uniforms.uOpacity.value = 0.55 * lampsOn;
+      for (let i = 0; i < lights.length; i++) { // traffic lights: green, yellow, red in turn, the cross street the other way about
+        const L = lights[i], ph = (t + L[4] + (L[3] ? 6 : 0)) % 12;
+        if (ph < 5) tlCol.set([0.1, 1, 0.3], i * 3); else if (ph < 6) tlCol.set([1, 0.8, 0.1], i * 3); else tlCol.set([1, 0.12, 0.08], i * 3);
+      }
+      tlG.attributes.color.needsUpdate = true;
+      for (const car of cars) {
+        const ps = car.run.pts, np = ps.length;
+        car.s += car.dir * car.speed * dt;
+        if (car.s < 0 || car.s > np - 2) (car.dir *= -1), (car.s = clamp(car.s, 0, np - 2));
+        const i = Math.min(Math.floor(car.s), np - 2), u = car.s - i, p = ps[i], q2 = ps[i + 1];
+        car.mesh.visible = Math.hypot(camPos.x - p.x, camPos.z - p.z) < 700;
+        if (!car.mesh.visible) continue;
+        const lane = 2.0 * car.dir;
+        car.mesh.position.set(lerp(p.x, q2.x, u) + p.rx * lane, lerp(p.y, q2.y, u) + 0.08, lerp(p.z, q2.z, u) + p.rz * lane);
+        car.mesh.rotation.y = Math.atan2((q2.x - p.x) * car.dir, (q2.z - p.z) * car.dir);
+        for (const l of car.lights) l.material.opacity = 0.9 * lampsOn;
+      }
     });
     yield;
   }
@@ -1251,6 +1566,61 @@ function islandRoad(a) {
 }
 const CAR_COLORS = [0xc8342b, 0xf2f2ee, 0x2f5d8c, 0x3c3c3c, 0xe0b23a, 0x3f7a4a, 0x8a8f96];
 const _carGeo = {};
+// A city sits in a patch of its island, off-centre and ragged-edged, not over the whole thing; the rest stays green.
+function cityZone(a) {
+  if (!a._cz) { const th = a.p1, off = a.r * 0.2; a._cz = { x: a.x + Math.cos(th) * off, z: a.z + Math.sin(th) * off, R: Math.min(a.r * 0.62, 300) }; }
+  return a._cz;
+}
+function inCityZone(a, x, z, m = 0) {
+  const zn = cityZone(a), dx = x - zn.x, dz = z - zn.z, th = Math.atan2(dz, dx);
+  return Math.hypot(dx, dz) < zn.R * (0.78 + 0.44 * vnz(Math.cos(th) * 2 + 9, Math.sin(th) * 2 + 9, 71)) + m;
+}
+// A cone of light as a shader (like the lighthouse's beam): a unit cone, apex at the origin, opening along +z to radius 1 at z = 1, scaled per use.
+// It is brightest through the middle of the beam and fades toward its edges and with distance from the lamp.
+function lightConeMaterial(color) {
+  return new THREE.ShaderMaterial({
+    uniforms: { uOpacity: { value: 0 }, uColor: { value: new THREE.Color(color) } },
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false,
+    vertexShader: `
+      varying vec3 vN; varying vec3 vV; varying float vLen;
+      void main() {
+        mat4 M = modelMatrix;
+        #ifdef USE_INSTANCING
+          M = modelMatrix * instanceMatrix;
+        #endif
+        vec3 sc = vec3(length(M[0].xyz), length(M[1].xyz), length(M[2].xyz));
+        vec3 nl = vec3(position.x / sc.x, position.y / sc.y, -position.z / sc.z);
+        mat3 Rm = mat3(M[0].xyz / sc.x, M[1].xyz / sc.y, M[2].xyz / sc.z);
+        vN = normalize(mat3(viewMatrix) * (Rm * nl));
+        vec4 mv = viewMatrix * M * vec4(position, 1.0);
+        vV = normalize(-mv.xyz);
+        vLen = position.z;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      uniform float uOpacity; uniform vec3 uColor;
+      varying vec3 vN; varying vec3 vV; varying float vLen;
+      void main() {
+        float rim = abs(dot(normalize(vN), normalize(vV)));
+        float a = uOpacity * pow(rim, 1.4) * pow(clamp(1.0 - vLen, 0.0, 1.0), 1.25) * smoothstep(0.0, 0.07, vLen);
+        gl_FragColor = vec4(uColor * a, a);
+      }`,
+  });
+}
+const unitCone = () => (unitCone.g ||= new THREE.CylinderGeometry(1, 0.0, 1, 18, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5)); // (apex at 0, opening toward +z)
+// two cones of light ahead of a car's headlamps (one shared material, brightened at night)
+let _coneMat = null;
+function addHeadCones(mesh) {
+  _coneMat ||= lightConeMaterial(0xfff0cc);
+  for (const x of [-0.6, 0.6]) {
+    const m = new THREE.Mesh(unitCone(), _coneMat);
+    m.position.set(x, 0.7, 2.2);
+    m.rotation.x = 0.06;
+    m.scale.set(2.4, 1.5, 17);
+    m.frustumCulled = false;
+    mesh.add(m);
+  }
+}
 function carGeometry(color) {
   return (_carGeo[color] ||= mergeGeos([
     pBox(1.8, 0.7, 4.2, color, 0, 0.65, 0), pBox(1.6, 0.6, 2.1, 0x22303a, 0, 1.25, -0.2),
@@ -1373,10 +1743,12 @@ function* extrasRoad(c) {
       mesh.add(s);
       return s;
     });
+    addHeadCones(mesh);
     c.group.add(mesh);
     cars.push({ mesh, run, s: R() * (run.pts.length - 2), dir: R() < 0.5 ? 1 : -1, speed: 2.2 + R() * 1.6, lights }); // (speed in road points per second: 5 m apart)
   }
   c.updaters.push((t, dt, lampsOn) => {
+    if (_coneMat) _coneMat.uniforms.uOpacity.value = 0.55 * lampsOn;
     for (const car of cars) {
       const pts = car.run.pts, n = pts.length;
       car.s += car.dir * car.speed * dt;

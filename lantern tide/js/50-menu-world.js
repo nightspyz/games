@@ -661,11 +661,10 @@ function groundTint(a, x, z, h, slope, rho, th) {
     if (lava > 0.05) (r = 0.1), (g = 0.04), (b = 0.02), (al = 1);
   } else if (ty === 3 && h > 2.5) (r = 0.5), (g = 0.47), (b = 0.4), (al = Math.max(al, 0.55 * smooth(2.5, 3.5, h)));
   else if (ty === 4 && h > -0.4) (r = 0.17), (g = 0.22), (b = 0.1), (al = Math.max(al, 0.85 * smooth(-0.4, 0.2, h)));
-  else if (ty === 5 && h > 1.0) {
-    const gx = ((x - a.x) % 30 + 30) % 30, gz = ((z - a.z) % 30 + 30) % 30;
-    const road = gx < 7 || gz < 7;
-    (r = road ? 0.27 : 0.46), (g = road ? 0.27 : 0.45), (b = road ? 0.28 : 0.43);
-    al = Math.max(al, 0.92 * smooth(1.0, 2.2, h));
+  else if (ty === 5 && h > 1.0 && inCityZone(a, x, z, 12)) {
+    const v = 0.43 + 0.06 * vnz(x * 0.2, z * 0.2, 61);
+    (r = v), (g = v * 0.99), (b = v * 0.95);
+    al = Math.max(al, 0.9 * smooth(1.0, 2.2, h));
   }
   // paths
   if (a.paths && h > 0.9) {
@@ -693,9 +692,14 @@ function* buildTerrain(c, step) {
   islandPOIs(a);
   const E = 1.42 * a.r + 230;
   const n = Math.ceil((2 * E) / step) + 1, x0 = a.x - E, z0 = a.z - E;
-  const H = new Float32Array(n * n);
+  const H = new Float32Array(n * n), own = new Uint8Array(n * n); // own: 1 = this island rules the point, 0 = a neighbouring island does, 2 = none does
   for (let j = 0; j < n; j++) {
-    for (let i = 0; i < n; i++) H[j * n + i] = bedHeightJS(x0 + i * step, z0 + j * step);
+    for (let i = 0; i < n; i++) {
+      const X = x0 + i * step, Z = z0 + j * step;
+      H[j * n + i] = bedHeightJS(X, Z);
+      const m = isleMix(X, Z, false);
+      own[j * n + i] = m.a === a ? 1 : m.a ? 0 : 2;
+    }
     if (j % 10 === 9) yield;
   }
   const pos = new Float32Array(n * n * 3), tint = new Float32Array(n * n * 4), lava = new Float32Array(n * n), field = new Float32Array(n * n), grass = new Float32Array(n * n * 4);
@@ -703,7 +707,7 @@ function* buildTerrain(c, step) {
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
       const k = j * n + i, x = x0 + i * step, z = z0 + j * step, h = H[k];
-      pos[k * 3] = x; pos[k * 3 + 1] = h; pos[k * 3 + 2] = z;
+      pos[k * 3] = x; pos[k * 3 + 1] = own[k] === 0 ? h - 0.05 : h; pos[k * 3 + 2] = z; // (where a neighbour's land overlaps, this island's copy sits a hair lower, so the two never fight for the same pixels)
       if (h > -0.5) {
         const hx = H[j * n + Math.min(n - 1, i + 1)] - H[j * n + Math.max(0, i - 1)], hz = H[Math.min(n - 1, j + 1) * n + i] - H[Math.max(0, j - 1) * n + i];
         const slope = Math.hypot(hx, hz) / (2 * step);
@@ -723,6 +727,7 @@ function* buildTerrain(c, step) {
     for (let i = 0; i < n - 1; i++) {
       const k = j * n + i;
       if (Math.max(H[k], H[k + 1], H[k + n], H[k + n + 1]) < -3.2) continue; // (the deep sea floor is never seen)
+      if (!(own[k] | own[k + 1] | own[k + n] | own[k + n + 1])) continue; // (land that wholly belongs to a neighbouring island is drawn by its mesh, not twice)
       idx.push(k, k + n, k + 1, k + 1, k + n, k + n + 1); // (wound to face up)
     }
   const geo = new THREE.BufferGeometry();
@@ -765,7 +770,7 @@ function nearRoad(a, x, z, m) {
 function palmSpots(c) {
   if (c.spots) return c.spots;
   const a = c.a, R = mulberry(a.seed * 31 + 5), out = [];
-  const want = a.type === 6 ? 0 : a.type === 1 ? Math.floor(a.r * a.r * 0.0026 * (a.veg === 2 ? 0.2 : a.veg === 1 ? 0.55 : 1)) : a.type === 4 ? Math.floor(a.r * a.r * 0.0008) : a.type === 2 ? Math.floor(a.r * a.r * 0.0004) : a.type === 3 ? Math.floor(a.r * a.r * 0.0006) : Math.floor(a.r * a.r * 0.0003);
+  const want = a.type === 6 ? 0 : a.type === 1 ? Math.floor(a.r * a.r * 0.0026 * (a.veg === 2 ? 0.2 : a.veg === 1 ? 0.55 : 1)) : a.type === 4 ? Math.floor(a.r * a.r * 0.0008) : a.type === 2 ? Math.floor(a.r * a.r * 0.0004) : a.type === 3 ? Math.floor(a.r * a.r * 0.0006) : a.type === 5 ? Math.floor(a.r * a.r * 0.0011) : Math.floor(a.r * a.r * 0.0003);
   for (let tries = 0; tries < want * 6 && out.length < want; tries++) {
     const th = R() * 6.2832, rr = Math.sqrt(R()) * isleCoastR(a, th);
     const x = a.x + Math.cos(th) * rr, z = a.z + Math.sin(th) * rr;
@@ -773,6 +778,7 @@ function palmSpots(c) {
     if (d > (a.type === 1 || a.type === 2 ? -6 : -14) || h < 1.2 || h > (a.type === 2 ? 22 : 14)) continue;
     const f = forestDensity(x, z);
     if (R() > smooth(0.36, 0.62, f) * 0.92 + 0.1) continue;
+    if (a.type === 5 && inCityZone(a, x, z, 26)) continue;
     if (poiKeepClear(a, x, z, 4)) continue;
     if (a.paths && distToPaths(a, x, z) < 2.6) continue;
     if (a.farm && farmMask(a, x, z) > 0.1) continue;

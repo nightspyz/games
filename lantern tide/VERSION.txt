@@ -1,7 +1,35 @@
-Lantern Tide - version 7.4 (4 Oct 2026)
+Lantern Tide - version 7.7 (5 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 7.7: RAIN, AND A SOLID SEA
+- Rain, and every other point or line object (window and lamp glows, traffic lights, aerial lights, lightning), had stopped drawing: three.js only gives its own
+  view matrix to mesh materials, and the world-curve patch needed it. Points and lines now get the camera's matrix from us, per eye.
+- Below the horizon the sky is now the deep sea's own solid colour, so the moon, stars and clouds can no longer show through the water. (Not seen on screen.)
+
+New in 7.6: A REAL CITY
+- The city island is rebuilt: streets of uneven blocks (every fourth an avenue, the whole grid turned a little), lots of different sizes with gaps and empty
+  blocks (more toward the edge), buildings in concrete, brick, grey-blue and stucco, pitched roofs on low buildings and flat roofs with parapets and rooftop
+  plant on the rest, setback tiers on the tall ones, towers toward the middle only.
+- Asphalt streets, street lamps every 20 m (glowing at night), and cars driving the streets with headlights.
+- The ground is no longer flat: rolling hills, with buildings founded down to the low corner on slopes. Big city islands are built over only in a core.
+- The city now fills only a ragged patch of its island (the rest stays green with palms and woodland), with street trees along the pavements, trees in the gaps between
+  buildings and denser parks. Street lamps and car headlamps throw soft cones of light that fade at their edges and along their length, like the lighthouse beam;
+  each street lamp's cone points down and lights the road beneath it.
+- Life in the streets: crosswalks, a dashed centre line, traffic lights that cycle (the cross street opposite), parks with trees and a fountain in the one nearest
+  the middle, aerials with blinking red lights, lit billboards on some roofs.
+- Street lamps now really light up at night: a warm pool of light on the road under every lamp, a glowing lamp head and a bigger halo.
+- Cars (in the city and on the coast roads) now throw two cones of light ahead of their headlamps at night.
+- Not seen on screen before shipping (my test runs missed the city): check it and report anything odd.
+
+New in 7.5: ISLANDS THAT JOIN INTO LANDMASSES
+- An island is no longer limited to its own 1.2 km cell. The land is now the union of the islands round any point, softened with a smooth minimum, so islands that
+  meet are bridged by one continuous landmass (the water shader does the same with the nine islands it is given). Island sizes now run up to 720 m in radius, so
+  the biggest ones spill into the cells round them and fuse with their neighbours.
+- Where two islands' ground overlaps, each island now draws only the land it rules (a neighbour's land is skipped), and its copy sits 5 cm lower along the seam,
+  so the two never fight for the same pixels (the flickering you saw where landmasses merged).
+- The sea floor now drops away to full depth 350 m off any coast (it used to creep down for kilometres), so far-off islands never matter to the water.
 
 New in 7.4: NAVIGATION IN SPACE, ROLL, BIGGER LAND
 - The code is split out of index.html into the js/ folder (nine files, loaded in order). Keep the folder next to index.html when you host it.
