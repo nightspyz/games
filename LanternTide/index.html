@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Lantern Tide</title>
+<!-- Lantern Tide v7.7 -->
+<style>
+html,body{margin:0;height:100%;background:#06202c;overflow:hidden;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+canvas{display:block;touch-action:none}
+[hidden]{display:none!important}
+#vr{z-index:10;position:fixed;bottom:18px;left:50%;transform:translateX(-50%);font:inherit;font-weight:600;color:#f2f7f6;background:rgba(6,24,34,.55);border:1px solid #ffffff33;border-radius:999px;padding:10px 22px;cursor:pointer;backdrop-filter:blur(6px)}
+#pip{position:fixed;right:16px;bottom:70px;width:30vw;max-width:380px;aspect-ratio:5/3;border:2px solid #ffffff88;border-radius:10px;pointer-events:none;box-shadow:0 2px 14px #0008}
+#pip div{position:absolute;left:0;right:0;top:100%;margin-top:6px;padding:4px 8px;border-radius:8px;font:600 12px system-ui,sans-serif;color:#fff;background:#0a1820cc}
+#minimap{position:fixed;right:max(28px,4.5vw);bottom:max(40px,7vh);width:clamp(150px,22vmin,240px);height:clamp(150px,22vmin,240px);border-radius:50%;box-shadow:0 2px 18px #000a,0 0 0 3px #0a1c28cc;pointer-events:none;z-index:5}
+#gmenu{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,92vw);background:rgba(8,20,28,.93);border:1px solid #ffffff33;border-radius:16px;padding:16px 20px;color:#e6efee;box-shadow:0 8px 40px #000a;font:14px system-ui,sans-serif}
+#gmenu h3{margin:0 0 6px;font-size:18px;min-height:20px}
+#gmenu .tabs{display:flex;gap:6px;margin-bottom:10px}
+#gmenu .pane[hidden]{display:none}
+#gmenu .big{font:700 34px system-ui,sans-serif;color:#ffd98a;margin-bottom:4px}
+#gmenu input[type=range]{width:100%}
+#gmenu h4{margin:14px 0 0;font-size:15px}
+#gmenu h3 span{float:right;font:700 14px system-ui,sans-serif}
+#gmenu{max-height:92vh;overflow:auto}
+#gmenu .lbl{margin:10px 0 4px;color:#8fa6a8;font-size:12px}
+#gmenu .row{display:flex;flex-wrap:wrap;gap:6px}
+#gmenu button{flex:1 1 auto;min-width:64px;padding:8px 10px;border:0;border-radius:10px;background:#26363f;color:#e6efee;font:600 14px system-ui,sans-serif;cursor:pointer}
+#gmenu button:hover{background:#3b5a68}
+#gmenu button.on{background:#2fa88a;color:#06231b}
+#gmenu .hint{margin-top:10px;color:#8fa6a8;font-size:12px}
+#hint{position:fixed;left:50%;top:16px;transform:translateX(-50%);color:#f2f7f6;background:rgba(6,24,34,.45);padding:6px 14px;border-radius:999px;pointer-events:none;transition:opacity 1.5s;text-shadow:0 1px 3px #0008}
+</style>
+</head>
+<body>
+<canvas id="minimap" width="220" height="220"></canvas>
+<div id="hint">WASD walk · drag look · Shift run · E pick up / put down · M: map · Y: board / leave the boat · Space: draw, light a firework, drone take-off/land · drone: WASD fly, R/F up/down, drag to steer</div>
+<div id="pip" hidden><div></div></div>
+<div id="gmenu" hidden></div>
+<button id="vr">Enter VR</button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="js/00-core.js"></script>
+<script src="js/10-ocean.js"></script>
+<script src="js/20-island.js"></script>
+<script src="js/30-sound-reef-boat.js"></script>
+<script src="js/40-play.js"></script>
+<script src="js/50-menu-world.js"></script>
+<script src="js/60-places.js"></script>
+<script src="js/70-sea-planet-nav.js"></script>
+<script src="js/80-travel-loop.js"></script>
+</body>
+</html>
