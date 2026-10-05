@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Artificial Life World</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="sim-panel" aria-label="Artificial life world">
+      <canvas id="world" aria-label="Top-down ecosystem simulation"></canvas>
+    </section>
+    <aside class="side-panel">
+      <header>
+        <h1>Artificial Life World</h1>
+        <p>Simulation-first ecology with plants, herbivores, predators, genetics, territories, combat, and decomposition.</p>
+      </header>
+
+      <section class="controls" aria-label="Simulation controls">
+        <button id="playPause" type="button">Pause</button>
+        <button id="reset" type="button">Reset</button>
+        <button id="zoomOut" type="button">Zoom out</button>
+        <button id="zoomIn" type="button">Zoom in</button>
+        <label>
+          Seed
+          <input id="seed" type="number" value="12345" min="1" step="1">
+        </label>
+        <label class="speed-control">
+          Speed <span id="speedLabel">2.0x</span>
+          <input id="speed" type="range" min="0.2" max="8" step="0.2" value="2">
+        </label>
+        <label class="zoom-control">
+          Zoom <span id="zoomLabel">1.0x</span>
+          <input id="zoom" type="range" min="0.65" max="6" step="0.05" value="1">
+        </label>
+      </section>
+
+      <section>
+        <h2>World State</h2>
+        <div id="stats" class="stats-grid" aria-live="polite"></div>
+      </section>
+
+      <section>
+        <h2>Populations</h2>
+        <table>
+          <thead>
+            <tr><th>Species</th><th>Alive</th><th>Born</th><th>Died</th></tr>
+          </thead>
+          <tbody id="species"></tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Population Graph</h2>
+        <canvas id="graph" aria-label="Population graph"></canvas>
+      </section>
+
+      <section>
+        <h2>Inspector</h2>
+        <div id="inspector" class="inspector" aria-live="polite"></div>
+      </section>
+
+      <section>
+        <h2>Event Stream</h2>
+        <ul id="events" class="events" aria-live="polite"></ul>
+      </section>
+    </aside>
+  </main>
+  <script src="src/simulation.js"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>
