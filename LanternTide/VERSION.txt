@@ -1,7 +1,12 @@
-Lantern Tide - version 7.6 (4 Oct 2026)
+Lantern Tide - version 7.7 (5 Oct 2026)
 
 Host this folder on any https address and open index.html in the Quest browser (WebXR needs https).
 Everything is in index.html; three.js r128 is loaded from cdnjs.
+
+New in 7.7: RAIN, AND A SOLID SEA
+- Rain, and every other point or line object (window and lamp glows, traffic lights, aerial lights, lightning), had stopped drawing: three.js only gives its own
+  view matrix to mesh materials, and the world-curve patch needed it. Points and lines now get the camera's matrix from us, per eye.
+- Below the horizon the sky is now the deep sea's own solid colour, so the moon, stars and clouds can no longer show through the water. (Not seen on screen.)
 
 New in 7.6: A REAL CITY
 - The city island is rebuilt: streets of uneven blocks (every fourth an avenue, the whole grid turned a little), lots of different sizes with gaps and empty

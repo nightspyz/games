@@ -1,5 +1,5 @@
 "use strict";
-// Lantern Tide v7.6: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
+// Lantern Tide v7.7: a quiet WebXR walk along an island beach on the Coastline ocean (Gerstner swell, breaking waves and
 // swash, foam, caustics, volumetric sky, rain and lightning) through a full day and night, with Chinese festival
 // lanterns on the water and in the air. The wave maths is mirrored in JS so floating things ride the real surface.
 const $ = (id) => document.getElementById(id);
@@ -8,13 +8,17 @@ const $ = (id) => document.getElementById(id);
 // A point at horizontal distance d from the camera drops by d*d*uCurve. That is done once, in the shared "project_vertex" chunk (and the
 // sprite shader), so every ordinary material follows it; the few hand-written shaders (the sea, the land) do the same by hand. uCurve is
 // very gentle at sea level and rises toward the planet's true curvature as you climb (see updateSpace).
-THREE.ShaderChunk.common += "\nuniform float uCurve;\nuniform vec3 uCurveCam;\n"; // (the camera, for the curve: three.js only keeps its own cameraPosition up to date for some material types)
+THREE.ShaderChunk.common += "\nuniform float uCurve;\nuniform vec3 uCurveCam;\nuniform mat4 uViewM;\n"; // (the camera, for the curve: three.js only keeps its own cameraPosition up to date for some material types)
 THREE.ShaderChunk.project_vertex = `
   vec4 mvPosition = vec4(transformed, 1.0);
   #ifdef USE_INSTANCING
     mvPosition = instanceMatrix * mvPosition;
   #endif
-  { vec4 wpc = modelMatrix * mvPosition; vec2 cdc = wpc.xz - uCurveCam.xz; wpc.y -= dot(cdc, cdc) * uCurve; mvPosition = viewMatrix * wpc; }
+  #ifdef LT_OWNVIEW
+    { vec4 wpc = modelMatrix * mvPosition; vec2 cdc = wpc.xz - uCurveCam.xz; wpc.y -= dot(cdc, cdc) * uCurve; mvPosition = uViewM * wpc; }
+  #else
+    { vec4 wpc = modelMatrix * mvPosition; vec2 cdc = wpc.xz - uCurveCam.xz; wpc.y -= dot(cdc, cdc) * uCurve; mvPosition = viewMatrix * wpc; }
+  #endif
   gl_Position = projectionMatrix * mvPosition;
 `;
 // (sprites are left as three.js makes them: bending their vertex shader whited the picture out on NVIDIA cards under Direct3D 11)
@@ -28,6 +32,9 @@ THREE.ShaderChunk.project_vertex = `
         if (f) f.call(this, sh, r);
         if (!sh.uniforms.uCurve) sh.uniforms.uCurve = sharedCurve;
         if (!sh.uniforms.uCurveCam) sh.uniforms.uCurveCam = curveCam;
+        if (!sh.uniforms.uViewM) sh.uniforms.uViewM = viewM;
+        // (three.js only uploads its own viewMatrix for mesh materials: points and lines get the camera's matrix from us, set per eye before each draw)
+        if (this.isPointsMaterial || this.isLineBasicMaterial || this.isLineDashedMaterial) sh.vertexShader = "#define LT_OWNVIEW\n" + sh.vertexShader;
       };
     },
     set(f) { this._obc = f; },
@@ -42,6 +49,8 @@ const FACE_CELLS = 32, CELL_M = 1300;
 const FACE_W = FACE_CELLS * CELL_M; // one face is 41.6 km across ...
 const PLANET_R = FACE_W / (Math.PI / 2); // ... a quarter of the way round, so the planet is about 26.5 km in radius (166 km round)
 const curveCam = { value: new THREE.Vector3() };
+const viewM = { value: new THREE.Matrix4() };
+THREE.Points.prototype.onBeforeRender = THREE.Line.prototype.onBeforeRender = function (r, sc, cam) { viewM.value.copy(cam.matrixWorldInverse); };
 const sharedCurve = { value: 1 / (2 * PLANET_R) }; // things drop by distance squared over twice the radius: the sphere's own curve
 
 // ===== Helpers =====
@@ -414,6 +423,9 @@ const sky = new THREE.Mesh(
         }
 
         col = mix(col, uHorizon, uFog * 0.95);
+        // below the horizon is the deep sea's own solid colour, so the moon, stars and clouds never show through the water
+        float belowH = (1.0 - smoothstep(-0.06, -0.005, d.y)) * (1.0 - uSpace);
+        col = mix(col, vec3(0.025, 0.17, 0.22) * (0.1 + 0.9 * clamp(uLightLevel, 0.0, 1.0)), belowH);
         gl_FragColor = vec4(col, 1.0);
       }
     `,
