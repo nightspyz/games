@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Earth and Solar Sim: about the game</title>
+<meta name="description" content="Earth and Solar Sim (formerly Lantern Tide) is a WebXR world: a small, real Earth and the real solar system, for the browser. What it is, what is in it, and how it grew.">
+<style>
+  :root {
+    --bg: #07161f; --panel: #0e2532; --panel2: #123043; --ink: #e6efee; --dim: #8fa6a8;
+    --teal: #7ff0c8; --warm: #ffd98a; --coral: #ff8a6a; --line: #ffffff1a;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--teal); }
+  img { max-width: 100%; display: block; }
+  .wrap { width: min(1080px, 100% - 32px); margin: 0 auto; }
+  header.hero { position: relative; min-height: min(78vh, 720px); display: grid; align-items: end; overflow: hidden; }
+  header.hero img.bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  header.hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, #07161f00 30%, #07161fcc 78%, var(--bg) 100%); }
+  header.hero .wrap { position: relative; z-index: 1; padding: 0 0 48px; }
+  h1 { font-size: clamp(40px, 8vw, 84px); line-height: 1; margin: 0 0 12px; letter-spacing: -0.02em; }
+  h1 span { color: var(--warm); }
+  .lede { font-size: clamp(18px, 2.6vw, 24px); max-width: 38em; color: #d3e3e1; margin: 0 0 24px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn { display: inline-block; padding: 12px 20px; border-radius: 999px; background: var(--teal); color: #05241b; font-weight: 700; text-decoration: none; }
+  .btn.alt { background: #ffffff18; color: var(--ink); }
+  nav.toc { position: sticky; top: 0; z-index: 5; background: #07161fdd; backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  nav.toc .wrap { display: flex; gap: 18px; overflow-x: auto; padding: 10px 0; white-space: nowrap; font-size: 14px; }
+  nav.toc a { color: var(--dim); text-decoration: none; }
+  nav.toc a:hover { color: var(--teal); }
+  section { padding: 56px 0 8px; }
+  h2 { font-size: clamp(26px, 4vw, 38px); margin: 0 0 8px; letter-spacing: -0.01em; }
+  h2 + p.sub { color: var(--dim); margin: 0 0 24px; }
+  h3 { margin: 28px 0 6px; font-size: 20px; color: var(--warm); }
+  p { margin: 0 0 14px; max-width: 46em; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 24px 0 8px; }
+  .fact { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .fact b { display: block; font-size: 26px; color: var(--teal); }
+  .fact span { color: var(--dim); font-size: 14px; }
+  figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  figure img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #0b1c27; }
+  figcaption { padding: 10px 14px 12px; font-size: 14px; color: var(--dim); }
+  figcaption b { color: var(--ink); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin: 20px 0; }
+  .grid.two { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: center; margin: 22px 0; }
+  .split.flip > :first-child { order: 2; }
+  @media (max-width: 760px) { .split, .split.flip { grid-template-columns: 1fr; } .split.flip > :first-child { order: 0; } }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; background: var(--panel); border-radius: 12px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--warm); font-weight: 600; width: 34%; }
+  tr:last-child th, tr:last-child td { border-bottom: 0; }
+  code, kbd { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; background: #ffffff14; padding: 1px 6px; border-radius: 6px; }
+  .timeline { position: relative; margin: 24px 0 0; padding-left: 26px; border-left: 2px solid #ffffff22; }
+  .step { position: relative; margin: 0 0 22px; }
+  .step::before { content: ""; position: absolute; left: -35px; top: 7px; width: 14px; height: 14px; border-radius: 50%; background: var(--teal); border: 3px solid var(--bg); }
+  .step .ver { display: inline-block; font-weight: 700; color: var(--warm); margin-right: 8px; }
+  .step .what { font-weight: 600; }
+  .step .ask { color: var(--dim); font-style: italic; margin: 2px 0 4px; }
+  .step p { margin: 0; }
+  .callout { background: linear-gradient(135deg, #123043, #0e2532); border: 1px solid #7ff0c833; border-radius: 16px; padding: 20px 22px; margin: 22px 0; }
+  .callout p:last-child { margin-bottom: 0; }
+  footer { margin: 64px 0 40px; color: var(--dim); font-size: 14px; border-top: 1px solid var(--line); padding-top: 20px; }
+  ul { padding-left: 1.2em; max-width: 46em; }
+  li { margin: 0 0 6px; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <img class="bg" src="img/sunset.jpg" alt="Sunset on the island beach in Earth and Solar Sim">
+  <div class="wrap">
+    <h1>Earth and <span>Solar Sim</span></h1>
+    <p class="lede">A small, real Earth and the real solar system, for the Quest browser and the desktop. Walk a beach or a Paris street, sail, fly, drive, take a starship to the Moon and walk about inside it, and put anything you like into the world. Open index.html: no server.</p>
+    <div class="btns">
+      <a class="btn" href="../index.html">Play it</a>
+      <a class="btn alt" href="#story">How it got here</a>
+      <a class="btn alt" href="#controls">Controls</a>
+    </div>
+  </div>
+</header>
+
+<nav class="toc"><div class="wrap">
+  <a href="#what">What it is</a><a href="#beach">The beach</a><a href="#sea">Sea and boats</a><a href="#world">The wider world</a>
+  <a href="#places">Places to find</a><a href="#earth">The real Earth</a><a href="#spawn">Spawn</a><a href="#starship">Starship</a><a href="#stars">Other stars</a><a href="#range">Range and camera</a><a href="#speed">Speed</a><a href="#space">Space</a><a href="#navigate">Navigating</a><a href="#homeland">Home land</a><a href="#controls">Controls</a><a href="#calendar">Calendar</a><a href="#moons">Moons and belt</a><a href="#relief">Real relief</a><a href="#story">How we got here</a><a href="#inside">Under the hood</a>
+</div></nav>
+
+<main class="wrap">
+
+<section id="what">
+  <h2>What it is</h2>
+  <p class="sub">An exploration toy, not a game with a score.</p>
+  <p>You start on a sand beach at the edge of a small island. There is nothing to win. You can walk, run, jump onto rocks, swim, climb into a boat, light a fire, draw in the sand with a stick, launch fireworks, fly a drone, and, if you want to, point a controller at the sky and fly away from the island entirely: past the clouds, past the point where the sky turns black, until your world is a small planet with a sun, a moon and a few neighbours.</p>
+  <p>Nothing is loaded from a file. The sky, the waves, the sand, the trees, the rocks, the buildings, the music of the wind and the sound of the engine are all generated by code when the page opens. That is why a world this size fits in a single file you can host anywhere with https and open in the Quest browser.</p>
+  <div class="facts">
+    <div class="fact"><b>0 servers</b><span>Double-click index.html. Everything is in the scripts, with three.js from a CDN. No build step.</span></div>
+    <div class="fact"><b>24 h</b><span>a real day (or 1 hour, or 8 minutes: your choice), on a real calendar from 1900 to 2100, with time speeds up to 4096×.</span></div>
+    <div class="fact"><b>1 / 240</b><span>the size of the real Earth: 26.5 km radius, with its real coasts, mountains, cities and airports.</span></div>
+    <div class="fact"><b>1 → 9.18</b><span>versions, each one a conversation turn.</span></div>
+  </div>
+</section>
+
+<section id="beach">
+  <h2>The beach, the day, the night</h2>
+  <p class="sub">Where it started, and still where you begin.</p>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/beach.jpg" alt="Midday on the beach"><figcaption><b>Midday.</b> Rippling water with caustics traced onto the shallows, a volumetric sky with clouds you can see the shapes of.</figcaption></figure>
+    <figure><img loading="lazy" src="img/sunset.jpg" alt="Sunset"><figcaption><b>Sunset.</b> Gold to orange to peach, with the reds and purples kept low so it reads as a real evening. God rays come through gaps in the cloud.</figcaption></figure>
+    <figure><img loading="lazy" src="img/lighthouse.jpg" alt="The lighthouse at dusk"><figcaption><b>The lighthouse.</b> A textured tower on a rock-ringed hill, with a cone-shaped beam that fades out and sweeps round at night.</figcaption></figure>
+    <figure><img loading="lazy" src="img/lanterns.jpg" alt="Festival lanterns at night"><figcaption><b>Festival lanterns.</b> Chinese lanterns rise into the sky, lotus lanterns drift on the water, and red ones hang on bamboo along the beach. They are off by default; turn them on in the menu.</figcaption></figure>
+  </div>
+  <div class="split">
+    <div>
+      <h3>Sand that remembers you</h3>
+      <p>Your footsteps are stamped into a texture that wraps around you, and the sand shader reads it as hollows: damp, packed sand at the bottom, a lip around the edge. A stick lies on the beach so you can draw. The tide, the rain and time slowly smooth it all away again.</p>
+      <h3>A fire for the night</h3>
+      <p>The campfire is a real light source for the sand, the water and nearby lamps. Rockets can be lit from it.</p>
+    </div>
+    <figure><img loading="lazy" src="img/campfire.jpg" alt="Campfire at night"><figcaption><b>The campfire</b> on the south beach, with its stones and logs.</figcaption></figure>
+  </div>
+</section>
+
+<section id="sea">
+  <h2>The sea, under and over</h2>
+  <p class="sub">Borrowed from your Coastline project and extended.</p>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/underwater.jpg" alt="Swimming underwater"><figcaption><b>Swimming.</b> Wade out and you float with your eyes just above the surface, riding the waves. Hold the triggers and sweep your arms to push yourself along. Dive and the world turns to teal murk, with a bright window to the sky above and muffled sound.</figcaption></figure>
+    <figure><img loading="lazy" src="img/dock-boat.jpg" alt="The dock and boat"><figcaption><b>The dock and the boat.</b> A timber pier in a sheltered, dredged basin behind a breakwater. Press <kbd>Y</kbd> to take the helm anywhere at sea, and again to step away. The menu can send it home to the dock.</figcaption></figure>
+  </div>
+  <p>The reef (seven kinds of coral), kelp forests, fish schools and leaping fish all come from Coastline and now follow you to whichever island you are at. So do the gulls, which circle where the fish are jumping and dive.</p>
+</section>
+
+<section id="world">
+  <h2>The wider world</h2>
+  <p class="sub">Islands that appear as you travel, and are the same every time.</p>
+  <p>The world is a grid of cells. Each cell is hashed together with a world seed to decide whether it holds an island, what kind, how big, and where. An island's height is a single formula written twice, once in JavaScript for walking and building the land, and once in GLSL for the water, so the waves break exactly where the shore is. Nothing needs to be loaded to know where an island is; the land is built a little at a time as you approach, out in the haze where you cannot see it happen.</p>
+  <div class="grid">
+    <figure><img loading="lazy" src="img/volcano.jpg" alt="A volcano island"><figcaption><b>Volcano.</b> Smoke, lava flows down the slopes, a red glow in the dark.</figcaption></figure>
+    <figure><img loading="lazy" src="img/city-night.jpg" alt="The city at night from above, with lit windows, street lamps casting pools of light, lit billboards and an aerial"><figcaption><b>The city at night.</b> Uneven blocks, pitched and flat roofs, lit billboards, an aerial with a red light, street lamps pooling warm light on the road, and trees along the pavements.</figcaption></figure>
+    <figure><img loading="lazy" src="img/city.jpg" alt="A city island at night"><figcaption><b>City island.</b> Since 7.6 the city fills only a ragged patch of its island, with uneven blocks, avenues, buildings of every size with pitched or flat roofs, parks and a fountain, street trees, crosswalks, traffic lights, lamps that light the road, cars with headlight beams, and lit windows you can see from far out to sea.</figcaption></figure>
+    <figure><img loading="lazy" src="img/airport.jpg" alt="The airport island"><figcaption><b>Airport.</b> Runway, tower, hangar and terminal, with planes landing and taking off on a loop.</figcaption></figure>
+    <figure><img loading="lazy" src="img/turbines.jpg" alt="An offshore wind farm"><figcaption><b>Wind farm.</b> Turbines turn into the wind. There is also an oil rig you can stand on, ships, and airliners overhead.</figcaption></figure>
+  </div>
+  <p>Other islands are tropical (forests, rivers, farm fields, sea cliffs), temple islands with stepped terraces, and swamps with mangroves. Some have a coast road with power lines, guard rails and cars, built the way Coastline builds its roads: resting on top of the land, bridging dips.</p>
+</section>
+
+<section id="places">
+  <h2>Places worth finding</h2>
+  <p class="sub">Hand-made, set into the generated land.</p>
+  <p>On top of the generated islands sit a few authored places. Each is placed by rules (flat enough, near water or deep in forest, away from the others), the ground is levelled and blended under it, trees keep clear, and a dirt path leads to it. What you do there is remembered between visits.</p>
+  <div class="grid">
+    <figure><img loading="lazy" src="img/cabin.jpg" alt="The fishing cabin"><figcaption><b>Fishing cabin.</b> A weathered hut with a porch lantern you can light, a drying rack, a pier and a dinghy.</figcaption></figure>
+    <figure><img loading="lazy" src="img/camp.jpg" alt="The abandoned campsite"><figcaption><b>Abandoned campsite.</b> A collapsed tent, a cold fire ring to relight, log seats, and a diary.</figcaption></figure>
+    <figure><img loading="lazy" src="img/shrine.jpg" alt="The forest shrine"><figcaption><b>Forest shrine.</b> A gate, stone lanterns and a mossy shrine in a clearing. Make an offering and the lanterns wake and fireflies appear.</figcaption></figure>
+    <figure><img loading="lazy" src="img/poi-lighthouse.jpg" alt="A lighthouse on a rocky shore"><figcaption><b>Lighthouse.</b> A banded tower on the rocks, with a beam that sweeps at night and a keeper's log to read.</figcaption></figure>
+    <figure><img loading="lazy" src="img/poi-wreck.jpg" alt="A shipwreck on the beach"><figcaption><b>Shipwreck.</b> Ribs, planks and a snapped mast half sunk where the sand meets the sea, with a chest and a log to search.</figcaption></figure>
+    <figure><img loading="lazy" src="img/poi-observatory.jpg" alt="An observatory on high ground"><figcaption><b>Observatory.</b> A dome on a stone terrace, a telescope to look through and a star chart with one constellation circled.</figcaption></figure>
+    <figure><img loading="lazy" src="img/poi-ruins.jpg" alt="Hidden ruins"><figcaption><b>Hidden ruins.</b> A ring of standing stones in the woods around a rune stone that wakes when you touch it.</figcaption></figure>
+  </div>
+  <p>The first time you come near one, the game tells you what you found and how many places you have found so far. Each has a "Nearest:" entry in the teleport menu, and a mark on the minimap.</p>
+</section>
+
+<section id="space">
+  <h2>A real planet</h2>
+  <p class="sub">Since 7.0 the world is a sphere, and you ride on it.</p>
+  <div class="split">
+    <div>
+      <p>The planet is a cube-sphere: six square faces, each 32 by 32 cells, wrapped into a globe about 26.5 km in radius. Each face is a flat map in metres, so the walking, swimming and building code you already had keeps working on it, and the planet itself is a true sphere. Walk or fly off the edge of one face and you are carried onto the next, with your heading, your speed and your boat turned to match. Every face is ringed by a band of open sea, so the join is never in view of land. You can circle the planet and come back to where you started.</p>
+      <p>The curve of the world is the sphere's own curve and no longer changes as you climb. The horizon is a few hundred metres away at the beach, islands rise over it as you approach, and from a few kilometres up you see the real globe: islands with their shallows, clouds and their shadows, a thin atmosphere glowing blue and orange at the terminator.</p>
+    </div>
+    <figure><img loading="lazy" src="img/planet-day.jpg" alt="The planet from 9 km up"><figcaption><b>From 9 km up.</b> Islands with their shallows on a round sea, under the atmosphere's rim.</figcaption></figure>
+  </div>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/horizon.jpg" alt="The curved horizon from 600 m"><figcaption><b>600 m.</b> The horizon bends away; the detailed sea melts into the planet's own.</figcaption></figure>
+    <figure><img loading="lazy" src="img/planet-dusk.jpg" alt="The terminator seen from space"><figcaption><b>The terminator.</b> A real day side and night side, with the sunset colours along the edge.</figcaption></figure>
+  </div>
+  <h3>The sun stands still; the planet turns</h3>
+  <p>The sun is fixed in space. The planet turns once a day under it, and you are on it, so your sunrise and sunset come from where you stand: fly east and the day gets later. The Time buttons set the time of day where you are. The moon circles the planet about every eight and a half days, lit by the same sun, so its phases are just where it is relative to the sun, and you can see them from the ground and from space.</p>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/moon.jpg" alt="A crescent moon in the night sky"><figcaption><b>The moon,</b> drawn as a lit ball, here a waning crescent.</figcaption></figure>
+    <figure><img loading="lazy" src="img/planet-far.jpg" alt="The whole planet from 70 km"><figcaption><b>70 km up.</b> The whole globe. Fly with the trigger at up to 7 km per second and the sky is black by 1.6 km.</figcaption></figure>
+  </div>
+  <h3>Lakes</h3>
+  <p>Some of the bigger islands now have a lake, cut into the land below the waterline, with its own water so it holds at any distance.</p>
+  <figure><img loading="lazy" src="img/lake.jpg" alt="An island with a lake"><figcaption><b>A lake inland</b> on a tropical island.</figcaption></figure>
+</section>
+
+<section id="worlds">
+  <h2>Other worlds</h2>
+  <p class="sub">Since 7.1 you can fly to them, and land.</p>
+  <p>In space you have a true position, and your speed grows with your height above the nearest world, so a crossing takes seconds and an arrival is gentle (the flight-speed setting chooses how fast, up to 600 km/s). The Moon, the red world, the ice world and a ringed gas giant sit at their real places and sizes. Come within 6 km of one you can land on and the ground is built round you, in four tile sizes, from a height function of the place on the world, so a given spot is always the same land. The gas giant has no ground: you can circle it, and that is all. Each world has its own sky, light, fog and gravity, and the home planet hangs in the sky as a sphere.</p>
+  <div class="grid">
+    <figure><img loading="lazy" src="img/world-moon.png" alt="Craters on the Moon from 6 km up"><figcaption><b>The Moon.</b> Craters of every size, from basins to pits, in low gravity.</figcaption></figure>
+    <figure><img loading="lazy" src="img/world-mars.png" alt="Canyons on the red world"><figcaption><b>The red world.</b> Rust desert, mesas and winding canyons under a pink sky.</figcaption></figure>
+    <figure><img loading="lazy" src="img/world-ice.png" alt="The ice world"><figcaption><b>The ice world.</b> Glaciers and crevasses under a pale blue sky.</figcaption></figure>
+  </div>
+</section>
+
+<section id="navigate">
+  <h2>Finding your way in space</h2>
+  <p class="sub">New in 7.3 and 7.4.</p>
+  <p>All four planets circle the sun in one flat plane, the nearer ones faster, and each world is lit from where the sun really is. A panel in front of your eyes shows your speed (and the top speed at that height), the name and distance of every world and the sun, with an arrow at the edge of the view when one is off to the side or behind you. The compass at the lower left shows the orbital plane as a ring: the green arrow points <i>up</i> out of it, the yellow dot is the sun. Roll with the right stick sideways (Q / E on a keyboard) and pitch with it forward and back (F / R). Coming in to a world, the horizon slowly turns level with it, so landing never flips your view.</p>
+  <div class="grid">
+    <figure><img loading="lazy" src="img/space-limb.jpg" alt="The edge of the planet from space with a thin orange atmosphere"><figcaption><b>The limb.</b> Stars behind a thin glowing atmosphere, with the minimap still with you.</figcaption></figure>
+    <figure><img loading="lazy" src="img/hud-1.jpg" alt="Space HUD with world names, a speed readout and the orbital compass"><figcaption><b>The space HUD.</b> Names and distances, speed against the top speed, and the orbital-plane compass.</figcaption></figure>
+    <figure><img loading="lazy" src="img/hud-2.jpg" alt="Space HUD at 172 km/s with Home and the Moon circled"><figcaption><b>On the way.</b> Far worlds are circled so they are easy to find; arrows point to the ones out of view.</figcaption></figure>
+  </div>
+</section>
+
+<section id="homeland">
+  <h2>The land at home</h2>
+  <p class="sub">New in 7.4.</p>
+  <p>Since 7.5 islands are no longer confined to their own cell: the land is the smooth union of the islands around you, so big ones fuse with their neighbours into one landmass. The islands have a new relief generator: rolling hills and ridged ranges, bent by a warp so nothing lines up, and the biggest islands are larger. Lakes are shallow bowls about a metre deep, with very subtle ripples.</p>
+  <div class="grid">
+    <figure><img loading="lazy" src="img/home-coast.jpg" alt="A coast with a volcano island in the distance"><figcaption><b>A volcano coast</b> under a grey sky.</figcaption></figure>
+    <figure><img loading="lazy" src="img/home-camp.jpg" alt="A camp below a green volcano"><figcaption><b>A camp</b> below the volcano's slopes.</figcaption></figure>
+  </div>
+</section>
+
+<section id="earth">
+  <h2>The real Earth, 1/240 size</h2>
+  <p class="sub">8.14 to 8.21: the islands became the planet we live on.</p>
+  <p>The planet is now a miniature of the real Earth, a 26.5 km radius globe with the real coastlines, mountains, lakes, rivers, deserts and ice. Heights come from Terrarium elevation tiles stitched into an 8192 by 4096 grid and packed into the scripts, so the game still opens by double-clicking <code>index.html</code>: nothing is fetched. Paris is a few kilometres from Rome. A kilometre on the screen is about 240 km of the real thing, and mountains are exaggerated three times (not ten: Everest is about 86 m tall here), which you can change with <code>?vex=</code>.</p>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/earth-from-space.jpg" alt="The Earth from 42 km up with real clouds, and the solar system's worlds named around it"><figcaption><b>From orbit.</b> Real continents, real clouds, a bright sun glint on the sea, and every world of the solar system named with its distance.</figcaption></figure>
+    <figure><img loading="lazy" src="img/earth-map.jpg" alt="The map of Europe with cities and a marker for where you are"><figcaption><b>The map (M).</b> Pan and zoom, search for a place, click to teleport; it shows you, the cities and the airports.</figcaption></figure>
+    <figure><img loading="lazy" src="img/paris-street.jpg" alt="A street in a city with tall buildings and trees"><figcaption><b>Cities.</b> From Natural Earth: each real city of 400,000 people or more gets streets, blocks and suburbs in a style that follows its region.</figcaption></figure>
+    <figure><img loading="lazy" src="img/airport-cdg.jpg" alt="An airport with a control tower and hangars"><figcaption><b>Airports,</b> seventy-two of them at their real places, with runways, a tower and hangars. Landmarks, temples, volcanoes, oil rigs and wind farms too.</figcaption></figure>
+  </div>
+  <p>Biomes, snow lines, weather and wind follow the real climate where you stand (a storm no longer covers the whole planet), and from space the clouds are the real cloud picture, drifting. Roofs and ship decks can be stood on. Lakes are real water at their real heights, and dry land has no sea in it.</p>
+  <h3>Spaced apart and the right size</h3>
+  <p>Features keep their own ground: airports, temples and landmarks are spaced apart, and city blocks, suburbs, towns and trees keep out of them. Objects are drawn smaller for the small planet (a single knob, <code>?objs=</code>, default 0.45), with trees, airports and ships following it.</p>
+</section>
+
+<section id="spawn">
+  <h2>A Spawn menu</h2>
+  <p class="sub">8.22 onward: put things into the world, then use them.</p>
+  <p>The menu has a Spawn tab beside Teleport. It holds everything below, five categories at a time, with page buttons and no scroll bars. Spawning starts a placement: aim, see the thing as a transparent green ghost (red where it cannot go), click to put it down (wheel or R turns it, Esc cancels). Put out as many as you like; Clean up in the menu takes them all away.</p>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/spawn-menu.jpg" alt="The Spawn tab of the menu with the Animals category"><figcaption><b>Spawn.</b> Vehicles, Animals, Ships, Things, Buildings and Range.</figcaption></figure>
+    <figure><img loading="lazy" src="img/house.jpg" alt="A timber house at night with a lit window and an open door"><figcaption><b>A house with an inside.</b> And a tent, and a campfire. Their look follows the region: Mediterranean, northern timber, tropical stilts, mud brick, tiled roofs, flat white roofs.</figcaption></figure>
+  </div>
+  <h3>Things you drive</h3>
+  <p>A car and a boat, a small plane, and a spaceship, each with a cockpit you see from inside, where the view stays open. The car and boat stay where you leave them, the plane is gone when you step out, and the spaceship stays exactly where you left it, with blinking lights so you can find it from far away.</p>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/plane-cockpit.jpg" alt="The inside of a small plane with six working dials"><figcaption><b>The plane.</b> Six working dials (speed, horizon, altitude, climb, heading, throttle), a yoke that moves, and a throttle that holds.</figcaption></figure>
+    <figure><img loading="lazy" src="img/ship-cockpit.jpg" alt="The inside of a spaceship with three screens"><figcaption><b>The spaceship.</b> A canopy of ribs and a console with three live screens. It flies up through the sky into space, and lands on other worlds.</figcaption></figure>
+  </div>
+  <h3>Life from Coastline</h3>
+  <p>Dolphins, whales, orcas, a shark, a manta, turtles, jellyfish and fish schools; seals, goats, horses, a dog, a cat and ducks; gulls, pelicans and cormorants; sailboats, a tour boat, a ferry, a tanker, a cruise liner, a container ship, the coast guard, a trawler, buoys, an airliner, a small plane and a hot-air balloon. They are the models and ideas from your Coastline project, and some of them are always about you: the sea has dolphins and boats, the land has goats and horses. <code>?life=0</code> turns that off.</p>
+</section>
+
+<section id="starship">
+  <h2>The starship</h2>
+  <p class="sub">8.25: a big ship you can walk about in, while it flies.</p>
+  <p><b>8.31.1:</b> on another world, <kbd>M</kbd> opens that world's own map (its texture, with you, your ships and what is known of it); the panel beside the minimap tells you whether you stand on the day or the night side, and the temperature there is calculated from the star's light, the world's albedo and its air.</p>
+  <p><b>8.31:</b> walk in and out as you would a house. Walk down the stern ramp and you step out onto the ground, on Earth or on another world; walk back up it and you are aboard, with no key. In space the same ramp lets you out into the dark: the ship keeps its place and turn, you float beside it, and floating back into its bay brings you aboard (V in space takes you to the ramp; the small spaceship lets you out with V and takes you in when you float up to it). The hull is new: a bevelled slab with a domed bridge, paired nacelles on pylons, panel lines and plating, a lit ramp bay and tail fins.</p>
+  <p>The starship is about 65 m long. Walk up its stern ramp into a cargo hold, through engineering with its glowing reactor, along a corridor past the crew quarters, medbay, mess, armoury, lab and observation lounge, to the bridge with the captain's chair. Inside, you always stand on the floor: in the air, in space, in any attitude the ship takes. The windows show whatever is outside.</p>
+  <div class="grid">
+    <figure><img loading="lazy" src="img/starship-outside.jpg" alt="The starship on the ground, seen from above"><figcaption><b>Outside.</b> A wedge hull, a bridge tower, swept wings, three engines and landing legs.</figcaption></figure>
+    <figure><img loading="lazy" src="img/starship-bridge.jpg" alt="The bridge with consoles and a hologram table"><figcaption><b>The bridge.</b> A hologram table, helm screens and big windows.</figcaption></figure>
+    <figure><img loading="lazy" src="img/starship-ground.jpg" alt="The starship landed on a field, seen from the ground with trees in front"><figcaption><b>Landed.</b> About 65 m long: bridge and tower at the front, cargo hold and engines at the back.</figcaption></figure>
+    <figure><img loading="lazy" src="img/starship-space.jpg" alt="The corridor of the starship in space with the planets named"><figcaption><b>Walking in space.</b> The ship carries on at its throttle while you stand up and walk its length.</figcaption></figure>
+  </div>
+  <p>Press <kbd>G</kbd> at the chair to take the helm, and again to stand up. Land it and press <kbd>V</kbd> to step out.</p>
+  <h3>One way to fly both ships</h3>
+  <p>The small spaceship and the starship fly the same way near the ground, near other worlds and in space. The left stick sets the throttle (push forward to speed up, pull back to slow down, let go and it holds) and yaws left and right. The right stick pitches (forward points the nose down) and rolls. Hold the left grip and the ship brakes to a stop; the right trigger lifts it straight up and the right grip lets it straight down, so landing is easy. On a keyboard: <kbd>W</kbd> <kbd>S</kbd> throttle, <kbd>A</kbd> <kbd>D</kbd> yaw, <kbd>R</kbd> <kbd>F</kbd> or the up and down arrows pitch, <kbd>Q</kbd> <kbd>E</kbd> or the left and right arrows roll, <kbd>Space</kbd> brakes, <kbd>Shift</kbd> boosts. The old trigger-and-point flight is kept for flying on foot.</p>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/sun.jpg" alt="The Sun filling the canopy of the spaceship, with the other worlds named around it"><figcaption><b>The Sun,</b> from Solar System Scope's texture, very bright, and a world you can fly down toward like the gas giants. The screen warms toward white as you near its surface, and the ship holds there.</figcaption></figure>
+    <figure><img loading="lazy" src="img/ship-moon.jpg" alt="The spaceship cockpit hovering over the Moon, altitude shown in kilometres"><figcaption><b>Landing on the Moon.</b> Near a world the ship slows itself, comes in gently, and sets down; step out and it stays there.</figcaption></figure>
+    <figure><img loading="lazy" src="img/moon-solid.jpg" alt="A full moon seen from the ground, a solid lit ball in a field of stars"><figcaption><b>The Moon from the ground</b> is a solid ball lit by the sun, with the right phase, and no stars show through it.</figcaption></figure>
+  </div>
+</section>
+
+<section id="stars">
+  <h2>Other stars: a jump drive</h2>
+  <p class="sub">8.28: six real nearby systems.</p>
+  <p>Fly a ship up into space, away from any world (three radii), and open Teleport &gt; Exoplanets (pick a star, or one of its planets, and the drive takes you right beside it). The drive charges for ten seconds while the stars stretch, the screen flashes, and you arrive a little way out from another real star, at rest and facing it. Jump back with "Home". The systems, with their real distances: Proxima Centauri (4.2 ly, three planets), Alpha Centauri (4.4, a pair of stars), Barnard's Star (6.0, four small planets), Sirius (8.6, a white star and its white dwarf), Epsilon Eridani (10.5, a gas giant) and TRAPPIST-1 (40.7, seven planets close in round a dim red star). <b>8.30:</b> every world that is not a gas giant can be landed on: Venus (volcanic plains under an orange haze) and the rock, desert, lava and ocean planets of the other stars each get their own generated ground and sky. The gas giants still hold you at their cloud tops. The ocean worlds are one flat sea with islands, and you walk on the sea floor: there is no water surface out there yet.</p>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/trappist.jpg" alt="Seven named planets round a red dwarf star, seen from a ship's canopy"><figcaption><b>TRAPPIST-1.</b> Seven worlds on their real orbits round a red dwarf, each named with its distance. Two are generated ocean worlds.</figcaption></figure>
+    <figure><img loading="lazy" src="img/saturn-rings.jpg" alt="Saturn's rings seen from the cockpit with the other worlds named"><figcaption><b>Saturn's rings</b> are a textured plane in the planet's real equator, and keep their place in space however you turn the view.</figcaption></figure>
+  </div>
+  <p>The sizes, colours and orbits are real where they are known. The surfaces are not: nobody has seen them, so each is generated from its kind (rock, ocean, ice, lava, desert, gas). At home you can see that plane in the sky: the planets' real orbits as rings, in space (<kbd>O</kbd> shows and hides them, or Travel &gt; Orbital plane). In the Solar System every planet now lies in one plane, the ecliptic, with its real north pole (Saturn leans 27 degrees, Uranus lies on its side, Venus turns backward), and the Moon keeps one face toward home.</p>
+</section>
+
+<section id="range">
+  <h2>A gun range, and a camera</h2>
+  <p class="sub">8.22 and 8.25: from your Zap Range and Coastline projects.</p>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/range.jpg" alt="A held repeater gun with a cross-hair, hologram targets and a balloon in a field"><figcaption><b>The range.</b> Seven weapons, a bench with name plates, and hologram targets: balloons, archery discs, armoured plates and drones.</figcaption></figure>
+    <figure><img loading="lazy" src="img/camera.jpg" alt="The camera viewfinder framing dolphins with a rating card"><figcaption><b>The camera (C).</b> Zoom with the wheel, click to shoot. Each photo gets a star rating; the album saves them as pictures.</figcaption></figure>
+  </div>
+  <p>Pick a gun up with <kbd>E</kbd> (or a grip), fire with a click, <kbd>Space</kbd> or the trigger. Shots hit targets, the ground, the sea, buildings, animals, boats and your vehicles. The Spawn tab's Range list has the bench, the targets and one button for each weapon in your hand.</p>
+</section>
+
+<section id="speed">
+  <h2>Speed, lights and options</h2>
+  <p class="sub">8.26: making it run better, on a screen and in a headset.</p>
+  <p>The lights were the first suspect: every lamp in the air is a ray-marched volume. There is now a Volumetric lights setting (Off, Low, Medium, High, Max) that sets how many lights are marched and how finely, and Off skips them entirely. The surprise was the trees: about 34,000 of them at 100 triangles each were most of what was drawn. A typical scene went from 6.5 million triangles to 2.8 million on the default settings.</p>
+  <table>
+    <tr><th>Volumetric lights</th><td>Off / Low / Medium / High / Max: how many lights and how many steps along each</td></tr>
+    <tr><th>Ground detail</th><td>Low / Medium / High: how far out each level of terrain detail and the full-size trees reach</td></tr>
+    <tr><th>View distance</th><td>Near / Normal / Far: how many tiles of the Earth are kept around you</td></tr>
+    <tr><th>Automatic resolution</th><td>On a screen, lowers the resolution a little when the frame rate drops and gives it back when it recovers</td></tr>
+    <tr><th>Also done</th><td>Foveated rendering in a headset; far tiles update a quarter as often; the inside of the starship (hundreds of boxes) is merged into a few dozen draw calls; trees are fewer and lighter</td></tr>
+  </table>
+</section>
+
+<section id="controls">
+  <h2>Controls</h2>
+  <p class="sub">VR on Quest, or keyboard and mouse on a screen.</p>
+  <div class="split">
+    <table>
+      <tr><th>Move</th><td>Left stick (VR), <kbd>W A S D</kbd></td></tr>
+      <tr><th>Turn</th><td>Right stick (smooth), drag the mouse</td></tr>
+      <tr><th>Fly a ship</th><td>Left stick: throttle (it holds) and yaw. Right stick: pitch and roll. Left grip: brake. Right trigger: up, right grip: down (to land). Keyboard: W S throttle, A D yaw, R F or up/down arrows pitch, Q E or left/right arrows roll, PageUp / PageDown up / down, Space brakes, Shift boosts</td></tr>
+      <tr><th>Starship</th><td><kbd>G</kbd> sit at the helm or stand up; walk with the move keys; <kbd>V</kbd> to step out once landed</td></tr>
+      <tr><th>Get in or out of a vehicle</th><td><kbd>V</kbd> (or <kbd>Y</kbd> in a headset)</td></tr>
+      <tr><th>Camera</th><td><kbd>C</kbd> raise it, wheel zoom, click or <kbd>F</kbd> shoot, <kbd>Tab</kbd> album</td></tr>
+      <tr><th>Space HUD</th><td><kbd>H</kbd> shows and hides it (also in the Travel tab)</td></tr>
+      <tr><th>Run</th><td>Click the left stick, hold <kbd>Shift</kbd></td></tr>
+      <tr><th>Jump</th><td><kbd>A</kbd> / <kbd>Space</kbd></td></tr>
+      <tr><th>Fly</th><td>Jump, then hold a trigger and point (hold <kbd>Space</kbd> on a screen)</td></tr>
+      <tr><th>Swim</th><td>Stick, or hold the triggers and sweep your arms</td></tr>
+      <tr><th>Pick up / put down</th><td>Grip near it, <kbd>E</kbd></td></tr>
+      <tr><th>Use something</th><td>Trigger with a hand close to it, <kbd>E</kbd></td></tr>
+      <tr><th>Boat</th><td><kbd>Y</kbd> to board or leave; left stick drives</td></tr>
+      <tr><th>Menu</th><td><kbd>X</kbd> (left controller) / <kbd>X</kbd></td></tr>
+      <tr><th>Minimap size</th><td>Menu, <kbd>Shift</kbd>+<kbd>M</kbd></td></tr>
+      <tr><th>Map of the Earth</th><td><kbd>M</kbd> (wheel zoom, drag, double-click to go there, <kbd>Esc</kbd> closes)</td></tr>
+    </table>
+    <figure><img loading="lazy" src="img/menu.jpg" alt="The in-game menu"><figcaption><b>The menu.</b> Time and weather, world options (aurora, stars, waves, sand detail, festival lanterns), performance, teleport to any kind of place, and travel (flight and boat speed).</figcaption></figure>
+  </div>
+</section>
+
+
+<section id="calendar">
+  <h2>A real calendar, and real eclipses</h2>
+  <p class="sub">New in 9.11: pick any date from 1900 to 2100.</p>
+  <p>The game's clock is the calendar's. A day is a day (24 hours by default; the Time page can make it an hour or eight minutes, and the speeds go up to 4096×), a year is 365 days, and the planets, the sun and the moon are where they really are on the date. The Earth is turned to the date as well, so noon here is the real noon here. The new <b>Calendar</b> page changes the year, month, day and time of day, and takes you to any of the 452 solar and 457 lunar eclipses of 1901 to 2100 from NASA's catalogue, with a few famous ones to start with.</p>
+  <div class="split">
+    <figure><img loading="lazy" src="img/calendar-page.jpg" alt="The Calendar page of the menu, set to 21 August 2017"><figcaption><b>The Calendar page.</b> The year, month and day, the time of day here, the next and last eclipse, and a few famous ones.</figcaption></figure>
+    <div>
+      <p>The eclipse buttons take you to the right place: for a solar eclipse where the catalogue puts the greatest eclipse, an hour before it; for a lunar one where the moon is overhead. The map opens with the place marked. A lunar eclipse is always at night, because the moon has to be opposite the sun: the daytime one is the solar one.</p>
+      <p>It is checked against the catalogue, not just drawn to look right. The moon's place comes from Jean Meeus's series, and for all 452 solar eclipses the moon's shadow axis agrees with the catalogue's own number (gamma) to within 0.003 Earth radii, about 20 km. The places of the greatest eclipse of 2017 Aug 21, 2024 Apr 8, 1999 Aug 11 and 1919 May 29 come out within half a degree of NASA's.</p>
+    </div>
+  </div>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/eclipse-partial.jpg" alt="A thin crescent of the sun beside the black moon, 21 August 2017"><figcaption><b>Almost total.</b> 21 Aug 2017: the sun is a thin crescent behind the moon, just before totality.</figcaption></figure>
+    <figure><img loading="lazy" src="img/eclipse-total.jpg" alt="Totality: a black disc with the corona round it and a dark sky"><figcaption><b>Totality.</b> The black disc, its corona, and a sky that has gone dark. The sunlight on the ground goes to zero at the catalogue's time.</figcaption></figure>
+  </div>
+  <h3>The shadow of the earth on the moon</h3>
+  <p>The shadow is the planet's own circle, with its curved edge, a penumbra and a copper umbra, drawn on the moon's face in the sky and from space. The moon is in proportion now (0.27 of the planet's radius, 60 radii away), so it is as big in the sky as the sun, and eclipses are as rare as in life.</p>
+  <div class="grid">
+    <figure><img loading="lazy" src="img/eclipse-lunar-partial.jpg" alt="A full moon with the earth's shadow creeping in from the bottom"><figcaption><b>Entering.</b> 8 Nov 2022: the umbra's curved edge crossing a full moon.</figcaption></figure>
+    <figure><img loading="lazy" src="img/eclipse-lunar-deep.jpg" alt="The moon half in the umbra"><figcaption><b>Deep partial.</b> Half the moon is in the red shadow.</figcaption></figure>
+    <figure><img loading="lazy" src="img/eclipse-lunar-total.jpg" alt="A totally eclipsed moon, copper red, with Uranus and its moons nearby"><figcaption><b>Total.</b> The blood moon, with Uranus and its moons beside it, as the real sky of that night had it.</figcaption></figure>
+  </div>
+  <p>Where the planet's shadow falls on a station or a ship in orbit, and on Saturn's rings, the light goes with it; and when the moon's shadow crosses the planet it is a soft penumbra with a small dark core.</p>
+</section>
+
+<section id="moons">
+  <h2>Moons, a belt of rocks and ringed Saturn</h2>
+  <p class="sub">New in 9.13: the moons are there, at their real sizes and distances.</p>
+  <p>Thirty-one moons of Mars, Jupiter, Saturn, Uranus, Neptune and Pluto circle their planets in their real orbits, in the same proportion to their planets as the planets are to the home world, and the small ones are the odd rocks they are: Phobos is a lumpy 26 by 22 by 19 km, Hyperion a sponge, Amalthea a red potato. Ceres is in the belt. You can fly up to any of them and orbit it; you cannot go below the surface (landing on them is not there yet).</p>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/phobos.jpg" alt="Phobos, a lumpy rock, in front of Mars"><figcaption><b>Phobos</b> in front of Mars, with Jupiter a dot beyond.</figcaption></figure>
+    <figure><img loading="lazy" src="img/saturn-system.jpg" alt="Saturn and its rings from the sunlit side"><figcaption><b>Saturn,</b> its rings and its shepherd moons.</figcaption></figure>
+  </div>
+  <h3>The asteroid belt</h3>
+  <p>Between Mars and Jupiter (2.1 to 3.3 AU), and only there, are rocks of ten to a hundred metres and more. You cannot see them from the home planet or from afar (real asteroids are tiny and millions of kilometres apart): they are there when you are among them, a few kilometres round you, thickest in the ecliptic plane and thinning as you leave it. It is denser than the real belt so there is something to fly through.</p>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/asteroid-near.jpg" alt="A potato-shaped asteroid in the belt with others round it"><figcaption><b>In the belt.</b> A 75 m rock, with others round it, and Saturn a speck far off.</figcaption></figure>
+    <figure><img loading="lazy" src="img/rings-rocks.jpg" alt="Rocks of Saturn's ring in front of the planet, with the ring's edge"><figcaption><b>Inside the rings.</b> Close to the ring plane the flat picture is cut away and the rocks are there, going round the planet at their own speed.</figcaption></figure>
+  </div>
+  <figure style="max-width:760px;margin:20px 0"><img style="aspect-ratio:auto;object-fit:contain" loading="lazy" src="img/saturn-ring-flythrough.png" alt="Flying through Saturn's rings: the bands of the ring streak past, with the dark night side of the planet behind and the far ring edge seen as a thin line"><figcaption><b>Flying through Saturn's rings.</b> The bands of the ring streak past at speed; behind them the night side of the planet, and the far edge of the ring as a thin line. The ball hides the far half of the ring behind it, and the ring is drawn in its place among the worlds, so a planet in front of it covers it.</figcaption></figure>
+</section>
+
+<section id="relief">
+  <h2>The real height of the Moon and Mars</h2>
+  <p class="sub">New in 9.14, rebuilt at the Earth's resolution in 9.17.</p>
+  <p>The Moon and Mars are built the way the home planet is: a real height grid with the fine relief it cannot hold on top. The Moon's grid is NASA's LRO laser altimeter (SVS 4720, sixteen pixels a degree, about 8 m a sample on the game's small Moon) and Mars's is the Mars Global Surveyor MOLA topography (sixteen pixels a degree, real heights above the areoid, about 15 m a sample), shown at about six times true height so it can be walked. The basins, the great far-side crater, Olympus Mons, Hellas and Valles Marineris are where they are. On top come the craters (twelve sizes, each with its own age: fresh ones deep and sharp with a blanket of ejecta, old ones shallow and worn, the largest with terraced walls and central peaks) and a noise whose fine detail fades on steep slopes, so faces are smooth and flats keep their detail. The colours of both come from the world's map, as you saw it from orbit.</p>
+  <div class="grid two">
+    <figure><img loading="lazy" src="img/mars-grid-ground.jpg" alt="Rolling red Martian ground from 2.6 km up, with the horizon curving away"><figcaption><b>Mars on the real grid,</b> from 2.6 km above Valles Marineris (9.17): MOLA's heights, with the fine relief on top.</figcaption></figure>
+    <figure><img loading="lazy" src="img/moon-tycho-ground.jpg" alt="The grey ground of the Moon near Tycho in low sunlight, with stars above"><figcaption><b>The Moon near Tycho,</b> from 900 m up in morning light (9.17).</figcaption></figure>
+  </div>
+  <div class="grid">
+    <figure><img loading="lazy" src="img/mars-valles.jpg" alt="Rolling red ground over the Valles Marineris on Mars"><figcaption><b>Valles Marineris,</b> from 2.8 km up (the 9.14 ground).</figcaption></figure>
+    <figure><img loading="lazy" src="img/mars-olympus.jpg" alt="The flank of Olympus Mons"><figcaption><b>The flank of Olympus Mons.</b> A great shield, scaled to the game's world.</figcaption></figure>
+    <figure><img loading="lazy" src="img/moon-ground.jpg" alt="The grey ground of the Moon with stars above"><figcaption><b>The Moon,</b> from 2.8 km, with the sun low and the stars out all day.</figcaption></figure>
+  </div>
+  <p>Out at Pluto the sun is a dim dusk, not the home planet's noon: the sun's light on you now follows your distance from it.</p>
+  <h3>Going there</h3>
+  <p>The Teleport page has a category each for the <b>Moon</b> and <b>Mars</b>: the six Apollo landing sites, Tycho, Copernicus and the seas, the far side and the poles; Olympus Mons and the other volcanoes, Valles Marineris, the basins, and the places the landers came down (Viking, Pathfinder, Spirit, Opportunity, Curiosity, Perseverance and the rest). Each puts you on the ground at that place of the world's map, wherever you were. The other categories are Worlds (to fly up to a world and orbit it) and Stars (the exoplanets). The time slider now works on these worlds too: it sets the hour of the place under you, on the ground or in orbit above it. And the maps of the other worlds show you, the sun and the day and night side where they really are.</p>
+</section>
+
+<section id="story">
+  <h2>How we got here</h2>
+  <p class="sub">One conversation, built a request at a time.</p>
+  <p>Earth and Solar Sim (formerly Lantern Tide) began as a way to reuse the ocean from <b>Coastline</b>, your coastal exploration project, in a new VR experience. Every version below grew out of one running conversation with Claude Code, which wrote the code, ran it in a headless browser to check it, and committed it. Here is what changed at each step, and a few of the ideas that set it off. Nothing here has been tried on a headset by the assistant; you have been the one testing on the Quest, and the fixes you asked for are part of the story.</p>
+  <div class="timeline">
+    <div class="step"><span class="ver">1.0</span><span class="what">A raft on borrowed water</span><p>A raft on Coastline's ocean: Gerstner waves, foam, caustics, sky, with floating lanterns as the game.</p></div>
+    <div class="step"><span class="ver">2.0</span><span class="what">From raft to beach</span><p>The raft became a beach. Festival lanterns, a procedural sand shader, wind-driven palms, a day that lasts eight minutes. Smooth turning replaced snap turning.</p></div>
+    <div class="step"><span class="ver">2.1</span><span class="what">Sand, fire and a lighthouse beam</span><div class="ask">“i want my feet to make imprints in the sand”</div><p>Footprints and drawing in the sand, a campfire that lights the beach, a conical lighthouse beam, god rays through the clouds, better materials for trees, rocks and the lighthouse, and a run mode.</p></div>
+    <div class="step"><span class="ver">3.0</span><span class="what">The reef, the weather and a boat at a dock</span><p>Coastline's reef, kelp, fish schools, random weather and fog, and the boat moored at a new dock behind a breakwater.</p></div>
+    <div class="step"><span class="ver">3.1 – 3.3</span><span class="what">Things to pick up, and a menu to find them</span><p>Fireworks you can light, a drone with a hand controller that has a live screen, a VR menu with a fps meter, and performance settings for the costly sky.</p></div>
+    <div class="step"><span class="ver">3.4 – 3.5</span><span class="what">Making the sky smooth</span><p>Clouds and god rays are drawn into a small cached map of the sky and blurred, which removed the grain and made them cheap. Sunsets turned orange.</p></div>
+    <div class="step"><span class="ver">3.6 – 3.8</span><span class="what">Rocks to climb, water to swim in</span><p>A tabbed menu, dug-in sand marks, layered rock material, jumping onto rocks, swimming with underwater visuals and sound, arm-stroke swimming, and floating with just your head out.</p></div>
+    <div class="step"><span class="ver">3.9 – 3.12</span><span class="what">A menu that follows you, flight, and the boat</span><p>Menu that follows you, teleport tab, flight, and driving the boat with <kbd>Y</kbd>.</p></div>
+    <div class="step"><span class="ver">4.0</span><span class="what">An endless sea of islands</span><p>The streamed island world, volcano, temple, swamp and city islands, three hand-made places, a minimap, and a planned structure for adding more places (see <code>WORLD_DESIGN.md</code>).</p></div>
+    <div class="step"><span class="ver">4.1 – 4.2</span><span class="what">Life on the islands and out at sea</span><p>Ships, an oil rig, wind turbines, gulls, planes and an airport island, roads with power lines and cars, farmland and sea cliffs. Buildings were fixed to be solid, and roads were settled onto the landscape.</p></div>
+    <div class="step"><span class="ver">5.0</span><span class="what">The world becomes a planet</span><div class="ask">“make the entire world a sphere like a planet”</div><p>The world became a planet: a curve applied to everything, a ray-traced sphere standing in for the far sea, a baked map of the islands for the view from space, an atmosphere, sun, moon, stars and neighbours. Flight became much faster.</p></div>
+    <div class="step"><span class="ver">5.1 – 6.2</span><span class="what">Chasing a white-out, and four new places</span><p>A white-out that only some graphics cards showed was found by bisecting with switches: the curved-world patch applied to sprites broke Direct3D 11 on NVIDIA cards, so sprites are no longer bent. The review pass added four authored places, discovery messages, richer terrain and vegetation, a calmer minimap, safer diving, and a sky that goes black sooner.</p></div>
+    <div class="step"><span class="ver">7.0</span><span class="what">A true sphere that turns under a fixed sun</span><div class="ask">“I want this to be a real sphere”</div><p>The world became a cube-sphere of six faces joined at the edges, with one planet size at every height, a map of the whole planet baked from the same functions that stream the islands, lakes, a spinning planet under a fixed sun, and a moon with phases.</p></div>
+    <div class="step"><span class="ver">7.1</span><span class="what">Other worlds, and a ship fast enough to reach them</span><p>Space got a true position and a speed that grows with height, four other worlds at real sizes, tiled ground for the three you can land on, and a fix for a bug where plain materials were curved round the wrong point far from the origin.</p></div>
+    <div class="step"><span class="ver">7.2</span><span class="what">Ground worth landing on, and a quiet vacuum</span><p>New terrain for the Moon, the red world and the ice world (craters, mountain ranges, canyons, volcano, crevasses, boulders), and no more fish or underwater feel in space.</p></div>
+    <div class="step"><span class="ver">7.3</span><span class="what">A real solar system</span><p>The four planets now circle the sun in one flat plane and are lit by it from where they really are. Stars are back, the horizon eases level as you approach a world instead of flipping at landing, flight is much slower near worlds, and waves are silent out there.</p></div>
+    <div class="step"><span class="ver">7.4</span><span class="what">Finding your way between worlds</span><p>A navigation HUD for space (speed, world names and distances, an orbital-plane compass), roll with the stick, stars behind planets, a menu that works everywhere, new relief and larger islands at home, shallow rippling lakes, and the code split into a js/ folder.</p></div>
+    <div class="step"><span class="ver">7.5 – 7.6</span><span class="what">Landmasses that join, and a city that lives</span><p>Islands now join into larger landmasses, with the z-fighting at the seams fixed. The city was rebuilt as a patch of uneven streets with varied buildings and roofs on rolling ground, parks, a fountain, street trees, crosswalks and traffic lights; the lamps and car headlights throw soft cones of light that fade toward their edges.</p></div>
+    <div class="step"><span class="ver">7.7</span><span class="what">Rain and a solid sea</span><p>Rain, lightning and every glow made of points or lines had stopped drawing, because the world-curve patch needed a camera matrix that three.js only supplies to mesh materials; they now get it directly. Below the horizon the sky is now the deep sea's own solid colour, so nothing shows through the water.</p></div>
+    <div class="step"><span class="ver">7.8</span><span class="what">Evan's water</span><p>The whole sea was replaced with Evan Wallace's WebGL Water, grown to an open sea: a ripple simulation fed by wind, rain, swimming, the boat's wake and splashes, with caustics traced by sending sunlight down through the surface to the sea floor. The old swell, breakers, foam and drifting-cell caustics are gone.</p></div>
+    <div class="step"><span class="ver">7.9</span><span class="what">Ray-marched light</span><p>Sun shadows and ambient occlusion marched across the terrain's height field, islands shading the sea, and ray-traced reflections of the islands in the water. The sea no longer creeps up over the land, and the last fake caustics are gone.</p></div>
+    <div class="step"><span class="ver">8.0</span><span class="what">Ocean waves, lapping, wet sand, shadows</span><p>Real ocean waves roll in toward the land (a swell of many wavelengths and wind chop), with Evan's ripples on top. The waterline laps up the beach and leaves dark wet sand that dries back to gold. The sun casts shadow maps from buildings, props, the boat and the dock.</p></div>
+    <div class="step"><span class="ver">8.1</span><span class="what">Shadows that show</span><p>Palms, rocks, reeds and buildings now cast shadows from the sun (the game draws the shadow map itself), the sand dries in the order the water leaves it, and the sea reflects a little less of the sky.</p></div>
+    <div class="step"><span class="ver">8.2</span><span class="what">Gerstner waves</span><p>The swell is now Gerstner waves: crests sharpen and troughs flatten as each point of the sea rides a small circle. The boat, swimmers and caustics follow the same surface.</p></div>
+    <div class="step"><span class="ver">8.3</span><span class="what">Sea foam, and waves that meet rocks</span><p>Breaking crests foam in a lacy trail that fades. Waves bounce off rocks, the boat and the dock's piles, are sheltered behind them, and foam where they strike.</p></div>
+    <div class="step"><span class="ver">8.3.1</span><span class="what">The freeze fix</span><p>Fixed a not-a-number in the wave height that froze the game when the camera moved. Failures now show a message instead of a frozen screen, and ?lite=1 turns the heaviest maps down.</p></div>
+    <div class="step"><span class="ver">8.4</span><span class="what">Perlin terrain, terrain shadows</span><p>The land is built from Perlin fBm and ridged noise with a simplex warp: rolling dunes and hills on the home island, gently rolling low islands, and sharper mountain ranges. The terrain casts and receives real shadows, and its height map is drawn from the meshes themselves.</p></div>
+    <div class="step"><span class="ver">8.5</span><span class="what">No ring, a boat wake, taller land</span><p>The pale ring seen when flying high over the ocean is gone. The boat leaves a foamy wake, waves bounce off the dock's piles, and the mountains and dunes stand taller.</p></div>
+    <div class="step"><span class="ver">8.6</span><span class="what">The ring, wind sound, swaying trunks</span><p>The pale ring high over the ocean is gone, the sound follows the wind instead of breathing waves, and whole tree trunks bend with the wind.</p></div>
+    <div class="step"><span class="ver">8.7</span><span class="what">Lava, rock bombs, finer land, honest water</span><p>Much finer terrain, a lava mesh with a flowing texture, and a volcano that throws glowing rocks which land and cool as boulders. The water gained two shadows (a faint one on the waves, a solid one on the sea floor), no more ring at the far waterline, and light absorbed along the whole path through water so submerged things fade out with depth.</p></div>
+    <div class="step"><span class="ver">8.14 – 8.16</span><span class="what">A real Earth and a real solar system</span><div class="ask">“lets make the mini earth” and “make the planets like the real solar system”</div><p>The island world became a 1/240 model of the real Earth: real heights, land and sea, climate and biomes. The planets got real orbits and textures, the sky a real Milky Way, and from space the real clouds, the land and a sun glint on the sea.</p></div>
+    <div class="step"><span class="ver">8.17 – 8.19</span><span class="what">Maps, rivers, cities, landmarks</span><div class="ask">“minimap needs to work, also add a map of the earth when i press m”</div><p>A minimap and a map of the Earth (click to teleport, search for places), snow-capped mountains, rivers, roads, borders and cities from Natural Earth, finer terrain, a 54-place teleport list, landmarks, and standing on roofs and ship decks.</p></div>
+    <div class="step"><span class="ver">8.20</span><span class="what">No sea on dry land, and a better airliner</span><div class="ask">“i saw water even in places that are 100's of meters above ground”</div><p>Water was kept off dry land and real lakes were made with their real heights; objects were drawn at one global scale.</p></div>
+    <div class="step"><span class="ver">8.21</span><span class="what">Declutter, calmer mountains, smaller things</span><div class="ask">“buildings are ontop of eachother, hiding airports and landmarks”</div><p>Spacing rules for features, mountains at three times instead of ten, objects at 0.45, and the airports scaled with them.</p></div>
+    <div class="step"><span class="ver">8.22</span><span class="what">Spawn, Coastline, camera, faster space</span><p>A Spawn menu, vehicles you drive, Coastline's animals, boats and aircraft, its camera and album, slower storm clouds, a categorised teleport menu, and space flight about thirty times faster.</p></div>
+    <div class="step"><span class="ver">8.23 – 8.24</span><span class="what">Cockpits, controls, houses, a solid moon</span><p>A Spawn tab, open cockpits, pitch and roll and a throttle that holds, blinking lights, houses and tents with insides in the style of the region, a solid sun-lit moon, then real working cockpits for the plane and the spaceship.</p></div>
+    <div class="step"><span class="ver">8.25</span><span class="what">A starship, a gun range, a space HUD switch</span><div class="ask">“make another spawnable a bigger class ship, it will have walkable interiors”</div><p>A starship with a walkable inside that rides with the ship, Zap Range's weapons, bench and targets, and a switch for the space HUD. 8.25.1 fixed a menu that had grown scroll bars and a hull that rendered black.</p></div>
+    <div class="step"><span class="ver">8.26</span><span class="what">One flying scheme, landing anywhere, lighter</span><div class="ask">“left stick throttle forward back, left right yaw, right stick pitch roll”</div><p>Both ships fly with the same controls everywhere, brake with a grip, and land on other worlds. Volumetric lights have a setting, trees are lighter, the ground has levels of detail, and the picture can lower its own resolution.</p></div>
+    <div class="step"><span class="ver">8.27</span><span class="what">The Sun as a world, and up and down</span><div class="ask">“sun should be like the other planets, use texture from this site, let me fly close in its atmosphere”</div><p>The Sun from Solar System Scope's texture, very bright, a world to fly down toward; no altitude in space; the right trigger lifts and the right grip lowers the ship to land.</p></div>
+    <div class="step"><span class="ver">8.28</span><span class="what">A jump drive, and planets that stay put</span><div class="ask">“what would you think about interstellar flight to other star systems nearby”</div><p>Six real nearby systems with generated surfaces, reached by a ten-second jump. Planets and Saturn's rings are now oriented in inertial space (the real poles, one plane), so they no longer swing when the view turns.</p></div>
+
+    <div class="step"><span class="ver">9.0 – 9.2</span><span class="what">A new folder, space at 3 km, sound options</span><div class="ask">“i think space should start much sooner now it's 30km? that's very high”</div><p>The project moved to its own folder. Space begins at 3 km (the haze from 2.94 km), the version shows on the menu, and the sounds, the music and a mute have their own settings.</p></div>
+    <div class="step"><span class="ver">9.3 – 9.5</span><span class="what">A space station you can walk in, and an orbit that holds still</span><div class="ask">“maybe once i'm on board the station it could orbit the planet, let me toggle that somewhere on the station”</div><p>A wheel station in the style of 2001 with a hub, spokes, windows, an airlock and an orbit console; wheel speed modes from EVA to warp; always turning with the planet within 10 km, and an orbit track and an arrow on the maps. 9.5.1 and 9.5.2 fixed a planet that seemed to turn under you and a track that drifted.</p></div>
+    <div class="step"><span class="ver">9.6 – 9.7</span><span class="what">A 24-hour day, three orbit modes</span><div class="ask">“needs 3 orbit modes, orbit is the regular orbit, geostationary follows the planet rotation above the same point in the map, and static meaning i'm holding in space”</div><p>The day is 24 hours (and selectable), with time speeds up to 4096×, so an orbit takes its real ratio of a day. Orbit, geostationary and static on the station's console and on the spaceship, which also lets you step out in space.</p></div>
+    <div class="step"><span class="ver">9.8 – 9.10</span><span class="what">Shadows of worlds, clear skies, a moon in proportion</span><div class="ask">“would planets project shadows on other planets too? like lunar and solar eclipse”</div><p>The planet's shadow on stations and on Saturn's rings, a lunar-eclipse button, a clear sky with no cloud at all when the weather is clear, the moon at its real size and distance, and the sun's disc with the moon crossing it: the crescents, the corona and the earth's shadow across the moon.</p></div>
+    <div class="step"><span class="ver">9.11</span><span class="what">A real calendar, 1900 to 2100</span><div class="ask">“maybe use calendar data and planet locations, make a calendar from 1900 to 2100 selectable on another page and it will be used to calculate the time and position of all planets and moons”</div><p>The clock is the calendar's. NASA's eclipse catalogue (the page you pointed me at) gives the 452 solar and 457 lunar eclipses; the moon comes from Meeus's series and is checked against all of them.</p></div>
+    <div class="step"><span class="ver">9.12</span><span class="what">Landing without a seam, and dim far worlds</span><div class="ask">“ice planets are extremely bright, they shouldn't be this bright so far from the sun anyways”</div><p>The ground you land on takes its colours from the map you came down on, the world's picture fills the distance beyond the streamed tiles, the landing dip to black is a quarter of what it was, and the sun's light follows your distance from it.</p></div>
+    <div class="step"><span class="ver">9.13</span><span class="what">The moons, the belt, the rings' rocks, real heights</span><div class="ask">“can you add the moons of the solar system planets in their relative size and odd shapes, an asteroid belt between mars and jupiter, and the rings of saturn should be made of small rocks up close when i fly through them”</div><p>Thirty-one moons and Ceres, the belt, and the rocks of Saturn's rings.</p></div>
+    <div class="step"><span class="ver">9.14</span><span class="what">The real height of the Moon and Mars</span><div class="ask">“there's a displacement map of the moon here, choose one to generate terrain from. one for mars, those two can be more realistic”</div><p>The Moon's ground follows NASA's LRO altimeter map and Mars's follows JPL's MOLA topography picture (a shaded relief, turned into heights by integrating along the light, smoothed). Craters and roughness ride on them, and the colours come from the map you came down on. “lets keep what we have until now, and think over how to improve terrain generation later.”</p></div>
+
+    <div class="step"><span class="ver">9.15</span><span class="what">Craters done properly</span><div class="ask">“can we do something like this for the planets?” (a paper on procedural planetary multi-resolution terrain)</div><p>Twelve sizes of crater on the Moon and eleven on Mars, each with its own age: fresh ones deep with a sharp rim and a blanket of ejecta, old ones shallow and worn, the large ones with terraced walls and central peaks. The cliff at every crater's rim is gone.</p></div>
+    <div class="step"><span class="ver">9.16</span><span class="what">Eroded-looking ground, and tiles that fit</span><div class="ask">“yes try it make sure all the tiles fit without strange borders between them too”</div><p>A noise whose fine detail fades on steep slopes (smooth faces, detail on the flats), and the tiles of different sizes now end exactly on one another: the edge of each fine tile slides onto the coarse tile beneath it, in height, shading and colour.</p></div>
+    <div class="step"><span class="ver">9.17</span><span class="what">The real grid at the Earth's resolution</span><div class="ask">“why cant the planets have higher terrain resolution? borrow the teqniue used to make earth maybe?”</div><p>The Moon from NASA's LRO altimeter at 16 pixels a degree and Mars from MOLA's real heights, at about 8 m and 15 m a sample, with the fine relief on top as at home. Also: the home planet no longer draws over a nearer moon, the light and dark of the maps of other worlds, and the time slider on other worlds.</p></div>
+    <div class="step"><span class="ver">9.18</span><span class="what">Places on the Moon and Mars, and the rings</span><div class="ask">“maybe the teleport menu should have options to be on mars surface and moon surface orginise it somehow logically”</div><p>Moon and Mars have their own Teleport categories, the maps put you and the sun in their true places, and Saturn's rings no longer show through the planet or draw over the planets in front of them. “flying through saturn rings was a real pleasure it looks so real and inspireing”.</p></div>
+  </div>
+  <div class="callout">
+    <p><b>A note on what was tested.</b> Everything was checked in a headless desktop browser with software rendering, at about one frame per second, using scripted visits and screenshots. Frame rate on a real Quest 3 is untested, and the scene is heavy (the sea is drawn twice, and the base reef and sky were already costly). If it stutters, the Performance tab is the first place to look. The screenshots on this page were captured the same way.</p>
+  </div>
+</section>
+
+<section id="inside">
+  <h2>Under the hood</h2>
+  <p class="sub">The ideas that made it work in a single file.</p>
+  <h3>One formula, two languages</h3>
+  <p>Wave heights, shoreline shape and island height are written once in JavaScript and once in GLSL, kept identical, so physics, boats and the water shader agree.</p>
+  <h3>Deterministic worlds</h3>
+  <p>A cell's hash decides its island, so revisiting a place can never change it. The shaders get the nine cells round the camera as uniforms, and need no geometry to know where land is.</p>
+  <h3>A budget for building</h3>
+  <p>Islands are built in generators that run for a few milliseconds a frame, nearest first: coarse land, cheap instanced trees, then detail as you approach. Places of interest have three levels: a name, a simple silhouette, and a full scene with props, lights and things to use.</p>
+  <h3>A curved world, and a round one</h3>
+  <p>One line in three.js's shared vertex-projection chunk drops every vertex by distance squared, so every material bends with the world. The far sea is a sphere traced in a shader with the same curvature, and a map of all the islands, baked in the background from the same height formula, paints it from space.</p>
+  <h3>Smooth skies</h3>
+  <p>Clouds and god rays are marched into a small map of the whole sky, a quarter of it per frame, then blurred when read back. That is what removed the grain and made it affordable.</p>
+</section>
+
+<footer>
+  <p>Earth and Solar Sim runs on <a href="https://threejs.org">three.js</a> r128. Ocean, sky, reef, boat, fireworks, drone, ships, roads and fields come from your Coastline project. See <a href="../VERSION.txt">VERSION.txt</a> for the full change list and <a href="../WORLD_DESIGN.md">WORLD_DESIGN.md</a> for the world and places-of-interest design.</p>
+</footer>
+
+</main>
+</body>
+</html>

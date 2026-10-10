@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Earth and Solar Sim — Explore a world without edges</title>
+<meta name="description" content="Explore a miniature real Earth, travel through the solar system, land on the Moon and Mars, and walk inside a starship in a browser-based 3D world.">
+<style>
+  :root {
+    --bg: #07161f;
+    --panel: #0e2532;
+    --panel2: #123043;
+    --ink: #e6efee;
+    --dim: #a2b7b8;
+    --teal: #7ff0c8;
+    --warm: #ffd98a;
+    --line: #ffffff20;
+    --max: 1120px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 17px/1.7 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  a { color: var(--teal); }
+  img { display: block; max-width: 100%; }
+  .wrap { width: min(var(--max), calc(100% - 36px)); margin-inline: auto; }
+  .hero {
+    position: relative; min-height: min(82vh, 780px); display: grid; align-items: end;
+    overflow: hidden; isolation: isolate;
+  }
+  .hero > img {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2;
+  }
+  .hero::after {
+    content: ""; position: absolute; inset: 0; z-index: -1;
+    background: linear-gradient(180deg, #07161f08 10%, #07161f66 48%, #07161f 100%);
+  }
+  .hero-content { padding-block: 90px 58px; }
+  .eyebrow {
+    display: inline-block; color: var(--teal); text-transform: uppercase; letter-spacing: .15em;
+    font-size: 12px; font-weight: 800; margin-bottom: 14px;
+  }
+  h1 { max-width: 900px; font-size: clamp(44px, 8.5vw, 92px); line-height: .98; letter-spacing: -.045em; margin: 0 0 22px; }
+  h1 span { color: var(--warm); }
+  .lede { max-width: 760px; font-size: clamp(19px, 2.5vw, 25px); line-height: 1.5; color: #e0ecea; margin: 0 0 28px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; padding: 12px 20px; min-height: 48px; border-radius: 999px; background: var(--teal); color: #05241b; font-weight: 800; text-decoration: none; }
+  .btn.secondary { color: var(--ink); background: #ffffff18; border: 1px solid #ffffff35; }
+  .btn:hover { transform: translateY(-1px); }
+  .nav { position: sticky; top: 0; z-index: 10; background: #07161feF; backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+  .nav .wrap { display: flex; gap: 22px; overflow-x: auto; white-space: nowrap; padding-block: 12px; font-size: 14px; }
+  .nav a { color: var(--dim); text-decoration: none; }
+  .nav a:hover { color: var(--teal); }
+  section { padding-block: 76px 8px; }
+  h2 { font-size: clamp(29px, 4vw, 43px); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 10px; }
+  h3 { color: var(--warm); font-size: 21px; line-height: 1.3; margin: 26px 0 7px; }
+  p { max-width: 68ch; margin: 0 0 16px; }
+  .sub { color: var(--dim); font-size: 18px; margin-bottom: 26px; }
+  .intro-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 32px; align-items: center; }
+  .stats { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
+  .stat strong { display: block; font-size: clamp(25px, 3vw, 34px); color: var(--teal); line-height: 1.15; margin-bottom: 7px; }
+  .stat span { display: block; color: var(--dim); font-size: 14px; line-height: 1.5; }
+  .cards { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 18px; margin-top: 28px; }
+  .cards.three { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; min-width: 0; }
+  figure img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; background: #0b1c27; }
+  figcaption { padding: 13px 15px 16px; color: var(--dim); font-size: 14px; line-height: 1.55; }
+  figcaption strong { color: var(--ink); display: block; font-size: 16px; margin-bottom: 3px; }
+  .feature { display: grid; grid-template-columns: 1fr 1fr; gap: 34px; align-items: center; margin-top: 30px; }
+  .feature.reverse .visual { order: 2; }
+  .visual img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 16px; border: 1px solid var(--line); }
+  .callout { padding: 25px; border: 1px solid #7ff0c844; background: linear-gradient(135deg, #123043, #0e2532); border-radius: 18px; margin-top: 30px; }
+  .callout p:last-child { margin-bottom: 0; }
+  .steps { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; margin-top: 26px; }
+  .step { background: var(--panel); border: 1px solid var(--line); border-radius: 15px; padding: 20px; }
+  .step b { display: block; color: var(--warm); font-size: 18px; margin-bottom: 7px; }
+  details { margin-top: 26px; border: 1px solid var(--line); border-radius: 16px; background: #0b202b; overflow: hidden; }
+  summary { cursor: pointer; padding: 18px 21px; font-weight: 750; font-size: 18px; }
+  details .detail-body { padding: 0 21px 21px; }
+  details h3 { margin-top: 20px; }
+  ul { padding-left: 1.25em; max-width: 68ch; }
+  li { margin-bottom: 7px; }
+  .controls { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 15px; }
+  .controls th, .controls td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .controls th { color: var(--warm); width: 30%; font-weight: 650; }
+  .controls tr:last-child th, .controls tr:last-child td { border-bottom: 0; }
+  code, kbd { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; background: #ffffff16; padding: 2px 6px; border-radius: 5px; }
+  footer { margin-top: 80px; padding: 25px 0 42px; color: var(--dim); border-top: 1px solid var(--line); font-size: 14px; }
+  footer p { margin-bottom: 7px; }
+  @media (max-width: 760px) {
+    .intro-grid, .feature, .feature.reverse { grid-template-columns: 1fr; }
+    .feature.reverse .visual { order: 0; }
+    .cards.three, .steps { grid-template-columns: 1fr 1fr; }
+    section { padding-top: 58px; }
+    .hero { min-height: 680px; }
+  }
+  @media (max-width: 520px) {
+    .wrap { width: min(var(--max), calc(100% - 26px)); }
+    .cards, .cards.three, .steps { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: 1fr 1fr; }
+    .stat { padding: 14px; }
+    .nav .wrap { gap: 18px; }
+    .hero-content { padding-bottom: 42px; }
+  }
+</style>
+</head>
+<body>
+<header class="hero">
+  <img src="img/sunset.jpg" alt="Sunset over the island beach in Earth and Solar Sim">
+  <div class="wrap hero-content">
+    <span class="eyebrow">A browser-based world to explore</span>
+    <h1>Earth and <span>Solar Sim</span></h1>
+    <p class="lede">A miniature Earth. A living world. A solar system you can explore.</p>
+    <p>Start on a beach, sail across the sea, explore a real city, then leave the surface behind. Fly into orbit, land on the Moon or Mars, walk through a starship, and travel to nearby star systems.</p>
+    <div class="actions">
+      <a class="btn" href="../index.html">Play Earth and Solar Sim</a>
+      <a class="btn secondary" href="#explore">Explore the world</a>
+      <a class="btn secondary" href="#story">How it was built</a>
+    </div>
+  </div>
+</header>
+
+<nav class="nav" aria-label="Page navigation">
+  <div class="wrap">
+    <a href="#about">About</a><a href="#explore">Explore</a><a href="#earth">Real Earth</a>
+    <a href="#space">Solar system</a><a href="#starship">Starship</a><a href="#controls">Controls</a>
+    <a href="#story">Development</a><a href="#technical">Under the hood</a>
+  </div>
+</nav>
+
+<main class="wrap">
+  <section id="about">
+    <div class="intro-grid">
+      <div>
+        <h2>A world that keeps opening up</h2>
+        <p class="sub">An exploration sandbox, not a game with a score.</p>
+        <p>Earth and Solar Sim began as a quiet beach experience for VR. It grew into a small spherical world, then a miniature of the real Earth, and eventually a place to explore the solar system and nearby stars.</p>
+        <p>There is no required mission. Walk, swim, sail, drive, fly, take photographs, launch fireworks, or simply watch the light change. When you're ready, climb into a spacecraft and see how far you can go.</p>
+      </div>
+      <div class="stats" aria-label="Project highlights">
+        <div class="stat"><strong>1:240</strong><span>A miniature Earth, about 26.5 km in radius, with real geographic relief.</span></div>
+        <div class="stat"><strong>1900–2100</strong><span>A selectable calendar with solar and lunar eclipse events.</span></div>
+        <div class="stat"><strong>Moon + Mars</strong><span>Land on worlds shaped by real elevation data.</span></div>
+        <div class="stat"><strong>Browser-based</strong><span>Three.js, with no project build step and no game server required.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="explore">
+    <h2>Start anywhere. Keep going.</h2>
+    <p class="sub">Small details on the ground, huge distances overhead.</p>
+    <div class="cards">
+      <figure><img loading="lazy" src="img/beach.jpg" alt="The island beach in daylight"><figcaption><strong>A beach to begin with</strong>Walk through the sand, leave footprints, draw with a stick, swim, light a campfire, or watch the sky change from day to night.</figcaption></figure>
+      <figure><img loading="lazy" src="img/underwater.jpg" alt="The underwater world below the sea"><figcaption><strong>Life below the surface</strong>Dive into teal water, explore reefs and kelp, and find schools of fish beneath the waves.</figcaption></figure>
+      <figure><img loading="lazy" src="img/city-night.jpg" alt="A generated city island at night"><figcaption><strong>Islands and places to discover</strong>Generated coastlines, cities, airports, forests, volcanoes, temples, roads, and small authored places to find along the way.</figcaption></figure>
+      <figure><img loading="lazy" src="img/dock-boat.jpg" alt="The dock and boat at the island"><figcaption><strong>Travel by sea and air</strong>Take the boat out from its dock, fly above the clouds, or use the map and teleport menu to choose where to explore next.</figcaption></figure>
+    </div>
+  </section>
+
+  <section id="earth">
+    <div class="feature">
+      <div>
+        <h2>The real Earth, in miniature</h2>
+        <p class="sub">A spherical world built from geographic data.</p>
+        <p>The home world is a miniature globe with real coastlines and elevation data, including mountains, rivers, lakes, deserts, and ice. Cities and airports are placed at their real locations, while procedural buildings and details make the landscape explorable.</p>
+        <p>From the ground, the horizon curves away. From orbit, continents and clouds come together into a globe. The atmosphere, changing daylight, weather, and shadows help connect the small world to the planet we know.</p>
+      </div>
+      <div class="visual"><img loading="lazy" src="img/earth-from-space.jpg" alt="The miniature Earth from space with clouds and the solar system visible"></div>
+    </div>
+    <div class="cards">
+      <figure><img loading="lazy" src="img/earth-map.jpg" alt="The Earth map with cities and a location marker"><figcaption><strong>Find a place</strong>Pan and zoom around the map, search for locations, and teleport to places across the globe.</figcaption></figure>
+      <figure><img loading="lazy" src="img/paris-street.jpg" alt="A city street with buildings and trees"><figcaption><strong>Explore at street level</strong>Major real cities receive generated streets, blocks, buildings, and regional visual character.</figcaption></figure>
+    </div>
+  </section>
+
+  <section id="space">
+    <div class="feature reverse">
+      <div>
+        <h2>From the horizon to other worlds</h2>
+        <p class="sub">Leave the beach behind and keep flying.</p>
+        <p>Fly above the atmosphere and the curved world becomes a planet beneath you. Continue outward to the Moon, Mars, an ice world, and a ringed gas giant. Each landable world has its own terrain, sky, lighting, and gravity.</p>
+        <p>The Moon and Mars use real elevation datasets as the basis for their landscapes, with additional craters and fine relief layered on top. You can visit notable locations on their surfaces through the teleport menu.</p>
+      </div>
+      <div class="visual"><img loading="lazy" src="img/planet-day.jpg" alt="The miniature planet viewed from above the atmosphere"></div>
+    </div>
+    <div class="cards three">
+      <figure><img loading="lazy" src="img/world-moon.png" alt="Cratered lunar terrain"><figcaption><strong>The Moon</strong>Explore cratered terrain under low gravity and visit notable lunar locations.</figcaption></figure>
+      <figure><img loading="lazy" src="img/mars-grid-ground.jpg" alt="The real height-map terrain of Mars"><figcaption><strong>Mars</strong>Traverse broad basins, volcanoes, and canyons shaped by real topography.</figcaption></figure>
+      <figure><img loading="lazy" src="img/saturn-rings.jpg" alt="Saturn and its rings from a spacecraft"><figcaption><strong>Saturn and its rings</strong>Approach the ring plane and fly among nearby rocks in a denser-than-real fly-through experience.</figcaption></figure>
+    </div>
+    <div class="callout">
+      <p><strong>Real data, generated worlds.</strong> The home Earth and the Moon and Mars terrain draw on real geographic or elevation data. The surfaces of distant exoplanets are generated for exploration rather than presented as surveyed, real terrain.</p>
+    </div>
+  </section>
+
+  <section id="starship">
+    <div class="feature">
+      <div>
+        <h2>Walk around your starship</h2>
+        <p class="sub">A spacecraft is more than a cockpit.</p>
+        <p>Spawn a large starship, walk up its ramp, and explore its interior while it travels. Move through the cargo hold, engineering, crew spaces, lab, observation lounge, and bridge. The windows show the world outside, whether you're on the ground or in space.</p>
+        <p>You can take the helm, fly between worlds, land, and step back out to explore. A smaller spaceship and other vehicles offer different ways to move through the environment.</p>
+      </div>
+      <div class="visual"><img loading="lazy" src="img/starship-bridge.jpg" alt="The starship bridge with consoles and a holographic table"></div>
+    </div>
+    <div class="cards">
+      <figure><img loading="lazy" src="img/starship-outside.jpg" alt="The starship on the ground seen from above"><figcaption><strong>Built to explore</strong>A large ship with a bridge, engines, landing gear, and an interior you can walk through.</figcaption></figure>
+      <figure><img loading="lazy" src="img/ship-cockpit.jpg" alt="Inside the small spaceship cockpit"><figcaption><strong>Take the controls</strong>Fly a small spacecraft, climb toward orbit, approach other worlds, and land.</figcaption></figure>
+    </div>
+  </section>
+
+  <section id="more">
+    <h2>More to do along the way</h2>
+    <p class="sub">The world is a playground for curiosity.</p>
+    <div class="cards three">
+      <figure><img loading="lazy" src="img/cabin.jpg" alt="A small fishing cabin beside the water"><figcaption><strong>Discover quiet places</strong>Cabins, shrines, observatories, campsites, lighthouses, and shipwrecks are scattered through the generated world.</figcaption></figure>
+      <figure><img loading="lazy" src="img/camera.jpg" alt="The in-game camera framing wildlife"><figcaption><strong>Take photographs</strong>Use the camera, compose a shot, and keep pictures in the in-game album.</figcaption></figure>
+      <figure><img loading="lazy" src="img/calendar-page.jpg" alt="The in-game calendar set to an eclipse date"><figcaption><strong>Travel through time</strong>Choose dates from 1900 to 2100 and explore selected solar and lunar eclipses.</figcaption></figure>
+    </div>
+  </section>
+
+  <section id="controls">
+    <h2>How to explore</h2>
+    <p class="sub">Use a Quest headset in VR or play on a desktop with a keyboard and mouse.</p>
+    <div class="steps">
+      <div class="step"><b>1. Launch</b>Open the main <code>index.html</code> in a supported browser, or use the Play button above when hosted.</div>
+      <div class="step"><b>2. Find your bearings</b>Use the in-game menu, minimap, map, and teleport options to find a destination.</div>
+      <div class="step"><b>3. Choose your pace</b>Walk, swim, sail, drive, fly, photograph the world, or head into space.</div>
+    </div>
+    <details>
+      <summary>Show keyboard and VR controls</summary>
+      <div class="detail-body">
+        <table class="controls">
+          <tr><th>Move</th><td>Left stick in VR; <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> on desktop.</td></tr>
+          <tr><th>Turn</th><td>Right stick in VR; drag the mouse on desktop.</td></tr>
+          <tr><th>Menu</th><td><kbd>X</kbd> on the left controller / <kbd>X</kbd> on desktop.</td></tr>
+          <tr><th>Map</th><td><kbd>M</kbd> opens the Earth map.</td></tr>
+          <tr><th>Vehicles</th><td><kbd>V</kbd> to get in or out on desktop; <kbd>Y</kbd> in VR for the boat/vehicle action.</td></tr>
+          <tr><th>Camera</th><td><kbd>C</kbd> raise camera, mouse wheel to zoom, click or <kbd>F</kbd> to take a picture; <kbd>Tab</kbd> opens the album.</td></tr>
+          <tr><th>Run / jump</th><td>Click the left stick or hold <kbd>Shift</kbd> to run; <kbd>Space</kbd> to jump on desktop.</td></tr>
+          <tr><th>Fly a ship</th><td>Left stick controls throttle and yaw; right stick controls pitch and roll. On desktop, <kbd>W</kbd>/<kbd>S</kbd> throttle, <kbd>A</kbd>/<kbd>D</kbd> yaw, <kbd>R</kbd>/<kbd>F</kbd> pitch, and <kbd>Q</kbd>/<kbd>E</kbd> roll.</td></tr>
+        </table>
+      </div>
+    </details>
+    <div class="callout">
+      <p><strong>Experimental project.</strong> The project has been checked with scripted desktop-browser runs and screenshots, but performance on a physical Quest 3 headset has not been fully verified. Scene complexity and frame rate vary by device. If performance is poor, start with the in-game Performance settings.</p>
+    </div>
+  </section>
+
+  <section id="story">
+    <h2>How it was built</h2>
+    <p class="sub">One conversation, one request at a time.</p>
+    <p>Earth and Solar Sim began as <strong>Lantern Tide</strong>, a VR beach built around the ocean from <strong>Coastline</strong>, a coastal exploration project. A request for footprints in the sand led to a campfire, a lighthouse, swimming, islands, cities, a spherical world, real Earth data, other planets, and eventually a walkable starship.</p>
+    <p>The project was developed iteratively with Claude Code: requests became code changes, browser checks, screenshots, fixes, and new ideas. The history is part of the experience—a record of a small environment growing into something much larger.</p>
+    <div class="cards">
+      <figure><img loading="lazy" src="img/sunset.jpg" alt="The original beach environment at sunset"><figcaption><strong>It began with the beach</strong>Water, sand, sky, lanterns, and the feeling of being somewhere quiet.</figcaption></figure>
+      <figure><img loading="lazy" src="img/earth-from-space.jpg" alt="The completed miniature Earth from space"><figcaption><strong>Then the horizon became a planet</strong>The world expanded into real geography, a solar system, and destinations beyond Earth.</figcaption></figure>
+    </div>
+    <details>
+      <summary>Read the main development milestones</summary>
+      <div class="detail-body">
+        <h3>1.0–3.8 · The beach becomes an experience</h3>
+        <p>The raft became a beach with footprints, sand drawing, a campfire, a lighthouse beam, weather, reefs, kelp, fish, a dock, a boat, swimming, and a VR menu.</p>
+        <h3>4.0–6.2 · Islands and a curved world</h3>
+        <p>Procedural islands brought cities, volcanoes, temples, swamps, roads, airports, and places to discover. The world was curved so the horizon could become part of the experience.</p>
+        <h3>7.0–8.21 · A miniature Earth</h3>
+        <p>The world became a true sphere with a fixed sun, a rotating planet, a moon with phases, real coastlines and elevation data, cities, airports, climate, weather, and a map for finding places.</p>
+        <h3>8.22–8.30 · Vehicles, spacecraft, and nearby stars</h3>
+        <p>A spawn menu added vehicles, wildlife, a camera and album, working cockpits, a walkable starship, faster space travel, and jumps to nearby star systems.</p>
+        <h3>9.0–9.18 · Time, eclipses, moons, and real terrain</h3>
+        <p>The project gained a selectable calendar, eclipse events checked against a catalogue, orbital modes, solar-system moons, an asteroid belt, rocks in Saturn's rings, and higher-resolution lunar and Martian terrain.</p>
+        <p>For the full version-by-version record, see <a href="../VERSION.txt">VERSION.txt</a>. For the design of the generated world and places of interest, see <a href="../WORLD_DESIGN.md">WORLD_DESIGN.md</a>.</p>
+      </div>
+    </details>
+  </section>
+
+  <section id="technical">
+    <h2>Under the hood</h2>
+    <p class="sub">A large world assembled from compact rules.</p>
+    <div class="cards">
+      <figure><img loading="lazy" src="img/planet-dusk.jpg" alt="The planet at dusk with the day-night boundary visible"><figcaption><strong>Deterministic generation</strong>A world seed and cell coordinates determine where islands appear, so a place can be rebuilt consistently without storing every island.</figcaption></figure>
+      <figure><img loading="lazy" src="img/horizon.jpg" alt="The curved horizon viewed from above the surface"><figcaption><strong>A world that curves</strong>Terrain and water use matching height and shoreline logic, while the distant view gives way to the planet itself.</figcaption></figure>
+    </div>
+    <ul>
+      <li><strong>Rendering:</strong> built with three.js, with custom shaders for water, terrain, sky, and atmospheric effects.</li>
+      <li><strong>Streaming:</strong> nearby terrain is generated incrementally, with detail adjusted by distance.</li>
+      <li><strong>Consistency:</strong> shared formulas help the land, water, and movement agree about the shape of the world.</li>
+      <li><strong>Data and procedural content:</strong> real geographic and astronomical references are combined with generated buildings, terrain detail, and distant planetary surfaces.</li>
+    </ul>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><strong>Earth and Solar Sim</strong> · An experimental exploration world for desktop and browser VR.</p>
+    <p>Built with <a href="https://threejs.org">three.js</a>. The project draws on assets and ideas from Coastline. See <a href="../VERSION.txt">VERSION.txt</a> and <a href="../WORLD_DESIGN.md">WORLD_DESIGN.md</a> for more.</p>
+    <p><a href="../index.html">Return to the simulation</a></p>
+  </div>
+</footer>
+</body>
+</html>
